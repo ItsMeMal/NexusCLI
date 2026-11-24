@@ -270,7 +270,7 @@ class TUIClient {
 
 // ─── Compact Mascot & Header Component ────────────────────────────────────────
 
-function ElainaCompactHeader({ session, agentStatus, tokenUsage, frameIndex, elapsedSeconds, gitBranch }) {
+function NexusCompactHeader({ session, agentStatus, tokenUsage, frameIndex, elapsedSeconds, gitBranch }) {
   const mode = session?.mode || 'build';
   const model = session?.model || 'Elaina-Free';
   const stateKey = MASCOT_FRAMES[agentStatus.state] ? agentStatus.state : 'idle';
@@ -487,7 +487,7 @@ function InputBox({ input, mode, isBusy }) {
   },
     createElement(Text, { color: 'cyan', bold: true }, `[${mode.toUpperCase()}] ❯ `),
     createElement(Text, { color: isBusy ? 'gray' : 'white' },
-      input || (isBusy ? 'Elaina sedang memproses... tunggu sejenak' : 'Ketik instruksi coding atau ketik / untuk command palette...')
+      input || (isBusy ? 'NexusAI sedang memproses... tunggu sejenak' : 'Ketik instruksi coding atau ketik / untuk command palette...')
     ),
     !isBusy ? createElement(Text, { color: 'cyan' }, '█') : null
   );
@@ -1053,7 +1053,7 @@ function NexusTUIApp({ client, snapshotManager }) {
   }, [isRawModeSupported]);
 
   return createElement(Box, { flexDirection: 'column', width: '100%' },
-    createElement(ElainaCompactHeader, { session, agentStatus, tokenUsage, frameIndex: spinnerFrame, elapsedSeconds, gitBranch }),
+    createElement(NexusCompactHeader, { session, agentStatus, tokenUsage, frameIndex: spinnerFrame, elapsedSeconds, gitBranch }),
     createElement(PermissionModal, { request: pendingPermission }),
     createElement(MessagesArea, { messages, activeStream, maxRows: maxMessageRows }),
     isSlashActive && filteredCommands.length > 0

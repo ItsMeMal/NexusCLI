@@ -25,12 +25,10 @@ export const COMMANDS_REGISTRY = [
   { cmd: 'exit', cat: 'System', desc: 'Exit Nexus CLI session', needsArg: false }
 ];
 
-const PAGE_SIZE = 6;
-
 /**
- * Prompt user for input with REAL-TIME slash command dropdown menu.
- * When user types '/', a floating dropdown menu instantly appears under the prompt line.
- * Supports ↑/↓ navigation, Tab autocompletion, Backspace, and Enter execution.
+ * Prompt user for input with real-time slash suggestions.
+ * Shows a compact, glitch-free 1-line suggestions bar below prompt.
+ * Supports Tab autocomplete, arrow history, and direct execution.
  * 
  * @param {Object} options
  * @param {string} options.header - Line 1 of prompt (e.g. Starship status bar)
@@ -39,7 +37,6 @@ const PAGE_SIZE = 6;
  * @returns {Promise<string>} User input line
  */
 export async function promptWithAutocomplete({ header = '', arrow = '╰─❯ ', history = [] }) {
-  // If stdin is not a TTY (piped or automated), fallback to standard readline
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     return new Promise((resolve) => {
       const rl = readline.createInterface({
@@ -57,102 +54,63 @@ export async function promptWithAutocomplete({ header = '', arrow = '╰─❯ '
   return new Promise((resolve) => {
     let buffer = '';
     let cursorPos = 0;
-    let selectedIdx = 0;
-    let scrollOffset = 0;
+    let tabCycleIdx = -1;
     let historyIdx = -1;
-    let lastRenderedExtraLines = 0;
+    let hasDrawnHint = false;
 
-    // Enable keypress events on stdin
     readline.emitKeypressEvents(process.stdin);
     const wasRaw = process.stdin.isRaw;
     process.stdin.setRawMode(true);
     process.stdin.resume();
 
-    // Print initial header
     if (header) {
       process.stdout.write(header);
     }
 
     const render = () => {
-      // 1. Move to beginning of arrow line and clear everything below
-      process.stdout.write('\r\x1b[K'); // clear current line
+      const arrowVisualLen = stripAnsi(arrow).length;
+      const targetCol = arrowVisualLen + cursorPos + 1;
 
-      // Print arrow + buffer
-      process.stdout.write(arrow + buffer);
+      // 1. Draw prompt line
+      process.stdout.write('\r\x1b[K' + arrow + buffer);
 
-      // Check if slash menu is active
+      // 2. Check slash commands
       const isSlash = buffer.startsWith('/');
-      let extraLinesCount = 0;
+      let hintLine = '';
 
       if (isSlash) {
         const query = buffer.trim().toLowerCase().split(/\s+/)[0];
         const matches = COMMANDS_REGISTRY.filter((c) => c.cmd.toLowerCase().startsWith(query));
 
         if (matches.length > 0) {
-          // Clamp selection
-          if (selectedIdx >= matches.length) selectedIdx = matches.length - 1;
-          if (selectedIdx < 0) selectedIdx = 0;
-
-          // Compute scroll window
-          if (selectedIdx < scrollOffset) {
-            scrollOffset = selectedIdx;
-          } else if (selectedIdx >= scrollOffset + PAGE_SIZE) {
-            scrollOffset = selectedIdx - PAGE_SIZE + 1;
-          }
-
-          const visible = matches.slice(scrollOffset, scrollOffset + PAGE_SIZE);
-          const hasAbove = scrollOffset > 0;
-          const hasBelow = scrollOffset + PAGE_SIZE < matches.length;
-
-          const lines = [];
-          lines.push(`\n  ${c.cyan}┌── ✦ COMMAND SUGGESTIONS ${c.dim}(↑/↓ navigate • [Tab] complete • [Enter] select)${c.reset}`);
-
-          if (hasAbove) {
-            lines.push(`  ${c.cyan}│${c.reset}  ${c.yellow}▲ ... (${scrollOffset} more above)${c.reset}`);
-          }
-
-          visible.forEach((item, idx) => {
-            const absIdx = scrollOffset + idx;
-            const isSelected = absIdx === selectedIdx;
-            const cursor = isSelected ? `${c.cyan}❯${c.reset}` : ' ';
-            const cmdPadded = item.cmd.padEnd(16, ' ');
-            const tag = `[${item.cat}]`.padEnd(9, ' ');
-
-            if (isSelected) {
-              lines.push(`  ${c.cyan}│${c.reset} ${cursor} ${c.cyan}${c.bold}${cmdPadded}${c.reset} ${c.dim}${tag}${c.reset} ${c.brightWhite}${item.desc}${c.reset}`);
-            } else {
-              lines.push(`  ${c.cyan}│${c.reset} ${cursor} ${c.bold}${cmdPadded}${c.reset} ${c.dim}${tag}${c.reset} ${c.dim}${item.desc}${c.reset}`);
+          const visibleChips = matches.slice(0, 6).map((m, idx) => {
+            const isHighlighted = tabCycleIdx >= 0 && (tabCycleIdx % matches.length) === idx;
+            if (isHighlighted) {
+              return `${c.cyan}${c.bold}[${m.cmd}]${c.reset}`;
             }
-          });
+            return `${c.dim}${m.cmd}${c.reset}`;
+          }).join('  ');
 
-          if (hasBelow) {
-            const remaining = matches.length - (scrollOffset + PAGE_SIZE);
-            lines.push(`  ${c.cyan}│${c.reset}  ${c.yellow}▼ ... (${remaining} more below)${c.reset}`);
-          }
-
-          lines.push(`  ${c.cyan}└── ${c.dim}(${selectedIdx + 1} of ${matches.length} matches)${c.reset}`);
-
-          extraLinesCount = lines.length;
-          process.stdout.write(lines.join('\n'));
-
-          // Move cursor back up to arrow line and position at cursor
-          process.stdout.write(`\x1b[${extraLinesCount}A`);
+          const more = matches.length > 6 ? ` ${c.dim}+${matches.length - 6} more${c.reset}` : '';
+          hintLine = `  ${c.cyan}✦${c.reset} ${visibleChips}${more} ${c.dim}• [Tab] cycle • [Enter] select${c.reset}`;
+        } else {
+          hintLine = `  ${c.amber}✦ No command match for "${query}"${c.reset} ${c.dim}(press [Enter] for menu)${c.reset}`;
         }
       }
 
-      // Position cursor correctly on arrow line
-      const arrowVisualLen = stripAnsi(arrow).length;
-      const targetCol = arrowVisualLen + cursorPos + 1;
-      process.stdout.write(`\r\x1b[${targetCol}G`);
+      // Always clear line below and write hint (or empty line)
+      process.stdout.write('\n\x1b[K' + hintLine);
+      hasDrawnHint = true;
 
-      lastRenderedExtraLines = extraLinesCount;
+      // Move cursor back up to arrow line and set column
+      process.stdout.write(`\x1b[1A\r\x1b[${targetCol}G`);
     };
 
     const cleanupAndResolve = (result) => {
-      // Clear dropdown lines below
-      process.stdout.write('\r\x1b[K');
-      process.stdout.write(arrow + result + '\n');
-      process.stdout.write('\x1b[J'); // wipe any leftover dropdown lines below
+      if (hasDrawnHint) {
+        process.stdout.write('\n\x1b[K\x1b[1A');
+      }
+      process.stdout.write('\r\x1b[K' + arrow + result + '\n');
 
       process.stdin.removeListener('keypress', onKeypress);
       if (!wasRaw) {
@@ -164,6 +122,7 @@ export async function promptWithAutocomplete({ header = '', arrow = '╰─❯ '
     const onKeypress = (str, key) => {
       // Ctrl+C: Cancel / Exit
       if (key && key.ctrl && key.name === 'c') {
+        if (hasDrawnHint) process.stdout.write('\n\x1b[K\x1b[1A');
         process.stdout.write('\n');
         process.stdin.removeListener('keypress', onKeypress);
         if (!wasRaw) process.stdin.setRawMode(false);
@@ -185,9 +144,9 @@ export async function promptWithAutocomplete({ header = '', arrow = '╰─❯ '
 
       // Enter / Return
       if (key && (key.name === 'return' || key.name === 'enter')) {
-        // If user typed only '/' or partial command and there is a match selected
-        if (isSlash && matches.length > 0 && buffer === query) {
-          const chosen = matches[selectedIdx];
+        // If user highlighted a tab suggestion and pressed enter
+        if (isSlash && matches.length > 0 && tabCycleIdx >= 0) {
+          const chosen = matches[tabCycleIdx % matches.length];
           if (chosen) {
             if (!chosen.needsArg) {
               cleanupAndResolve(chosen.cmd);
@@ -195,7 +154,7 @@ export async function promptWithAutocomplete({ header = '', arrow = '╰─❯ '
             } else {
               buffer = chosen.cmd + ' ';
               cursorPos = buffer.length;
-              selectedIdx = 0;
+              tabCycleIdx = -1;
               render();
               return;
             }
@@ -205,10 +164,11 @@ export async function promptWithAutocomplete({ header = '', arrow = '╰─❯ '
         return;
       }
 
-      // Tab key: Autocomplete
+      // Tab key: Cycle autocompletion
       if (key && key.name === 'tab') {
         if (isSlash && matches.length > 0) {
-          const chosen = matches[selectedIdx];
+          tabCycleIdx = (tabCycleIdx + 1) % matches.length;
+          const chosen = matches[tabCycleIdx];
           if (chosen) {
             buffer = chosen.cmd + (chosen.needsArg ? ' ' : '');
             cursorPos = buffer.length;
@@ -223,7 +183,7 @@ export async function promptWithAutocomplete({ header = '', arrow = '╰─❯ '
       if (key && key.name === 'escape') {
         buffer = '';
         cursorPos = 0;
-        selectedIdx = 0;
+        tabCycleIdx = -1;
         render();
         return;
       }
@@ -231,9 +191,14 @@ export async function promptWithAutocomplete({ header = '', arrow = '╰─❯ '
       // Arrow Up
       if (key && key.name === 'up') {
         if (isSlash && matches.length > 0) {
-          selectedIdx = selectedIdx > 0 ? selectedIdx - 1 : matches.length - 1;
-          render();
-          return;
+          tabCycleIdx = tabCycleIdx > 0 ? tabCycleIdx - 1 : matches.length - 1;
+          const chosen = matches[tabCycleIdx];
+          if (chosen) {
+            buffer = chosen.cmd + (chosen.needsArg ? ' ' : '');
+            cursorPos = buffer.length;
+            render();
+            return;
+          }
         } else if (history.length > 0) {
           if (historyIdx < history.length - 1) {
             historyIdx++;
@@ -248,9 +213,14 @@ export async function promptWithAutocomplete({ header = '', arrow = '╰─❯ '
       // Arrow Down
       if (key && key.name === 'down') {
         if (isSlash && matches.length > 0) {
-          selectedIdx = selectedIdx < matches.length - 1 ? selectedIdx + 1 : 0;
-          render();
-          return;
+          tabCycleIdx = tabCycleIdx < matches.length - 1 ? tabCycleIdx + 1 : 0;
+          const chosen = matches[tabCycleIdx];
+          if (chosen) {
+            buffer = chosen.cmd + (chosen.needsArg ? ' ' : '');
+            cursorPos = buffer.length;
+            render();
+            return;
+          }
         } else if (history.length > 0) {
           if (historyIdx > 0) {
             historyIdx--;
@@ -302,7 +272,7 @@ export async function promptWithAutocomplete({ header = '', arrow = '╰─❯ '
         if (cursorPos > 0) {
           buffer = buffer.slice(0, cursorPos - 1) + buffer.slice(cursorPos);
           cursorPos--;
-          selectedIdx = 0;
+          tabCycleIdx = -1;
           render();
         }
         return;
@@ -312,7 +282,7 @@ export async function promptWithAutocomplete({ header = '', arrow = '╰─❯ '
       if (str && str.length === 1 && !key.ctrl && !key.meta) {
         buffer = buffer.slice(0, cursorPos) + str + buffer.slice(cursorPos);
         cursorPos++;
-        selectedIdx = 0;
+        tabCycleIdx = -1;
         render();
         return;
       }

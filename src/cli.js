@@ -376,13 +376,13 @@ async function runInteractive(parsed) {
   const executeTurn = async (userInput, autoApprove = false) => {
     let tokenStreamStarted = false;
     const turnStartTime = Date.now();
-    spinner.start('Thinking & analyzing workspace...');
+    spinner.start('( ✧ω✧) c( つ🪄✦ Menganalisis & merumuskan solusi...');
 
     await client.sendMessage(userInput, {
       onToken: (tok) => {
         if (!tokenStreamStarted) {
           spinner.stop(true);
-          console.log(`\n  ${c.cyan}✦${c.reset} ${c.bold}${c.brightWhite}Elaina (Nexus AI)${c.reset} ${c.dim}›${c.reset}\n`);
+          console.log(`\n  ${c.cyan}✦${c.reset} ${c.bold}${c.brightWhite}NexusAI${c.reset} ${c.magenta}( ˘ᴗ˘ )🪄${c.reset} ${c.dim}›${c.reset}\n`);
           tokenStreamStarted = true;
         }
         process.stdout.write(tok);
@@ -394,14 +394,14 @@ async function runInteractive(parsed) {
         }
         const argsPreview = JSON.stringify(event.args || {});
         const shortArgs = argsPreview.length > 55 ? argsPreview.slice(0, 52) + '…' : argsPreview;
-        spinner.start(`Tool: ${c.cyan}${c.bold}${event.name}${c.reset} ${c.dim}${shortArgs}${c.reset}`);
+        spinner.start(`( •̀_•́ ) c( つ📦⚡ Tool: ${c.cyan}${c.bold}${event.name}${c.reset} ${c.dim}${shortArgs}${c.reset}`);
       },
       onToolResult: (event) => {
         const outStr = String(event.output || '');
         const snippet = outStr.length > 85
           ? outStr.slice(0, 85).replace(/\r?\n/g, ' ') + '…'
           : outStr.replace(/\r?\n/g, ' ');
-        spinner.succeed(`${c.bold}${event.name}${c.reset} → ${c.dim}${snippet || '(success)'}${c.reset}`);
+        spinner.succeed(`( •̀ᴗ•́ ) c( つ📦✨ ${c.bold}${event.name}${c.reset} → ${c.dim}${snippet || '(success)'}${c.reset}`);
       },
       onPermission: async (event) => {
         spinner.stop(true);
@@ -441,13 +441,13 @@ async function runInteractive(parsed) {
           const promptFmt = (u.prompt_tokens || 0).toLocaleString();
           const compFmt = (u.completion_tokens || 0).toLocaleString();
           const totalFmt = (u.total_tokens || 0).toLocaleString();
-          console.log(`  ${c.dim}╰─ 📊 [${c.cyan}${totalFmt} tokens${c.dim} (${promptFmt} in / ${compFmt} out) • ${duration}s elapsed]${c.reset}\n`);
+          console.log(`  ${c.dim}╰─ ( ^_- )v✨ [${c.cyan}${totalFmt} tokens${c.dim} (${promptFmt} in / ${compFmt} out) • ${duration}s elapsed]${c.reset}\n`);
         } else {
-          console.log(`  ${c.dim}╰─ ✔ Turn finished in ${duration}s${c.reset}\n`);
+          console.log(`  ${c.dim}╰─ ( ^_- )v✨ [Turn selesai dalam ${duration}s]${c.reset}\n`);
         }
       },
       onError: (errData) => {
-        spinner.fail(`Execution Error: ${errData.message}`);
+        spinner.fail(`( T_T ) c( つ💔 Execution Error: ${errData.message}`);
         console.log('');
       }
     });
@@ -507,7 +507,7 @@ async function runInteractive(parsed) {
     // Exit
     if (trimmed === 'exit' || trimmed === 'quit' || trimmed === '/exit' || trimmed === '/quit') {
       await cleanup();
-      console.log(`\n  ${c.dim}Sampai jumpa! 👋 Nexus session closed.${c.reset}\n`);
+      console.log(`\n  ( ˘ᴗ˘ )v ${c.cyan}Sampai jumpa! 👋 NexusAI session closed.${c.reset}\n`);
       return;
     }
 

@@ -151,24 +151,26 @@ export function renderBanner({ sessionId, mode, model, serverUrl, gitBranch = 'c
   const topStatus = `${c.green}● ONLINE${c.reset} ${modeBadge}`;
   const row1Gap = Math.max(1, innerWidth - stripAnsi(topBrand).length - stripAnsi(topStatus).length);
 
-  const row2Col1 = `${c.dim}Model:${c.reset} ${c.cyan}${c.bold}${model}${c.reset}`;
-  const row2Col2 = `${c.dim}Git:${c.reset} ${c.magenta} ${gitBranch}${c.reset}`;
-  const row2Col3 = `${c.dim}Endpoint:${c.reset} ${c.slate}${serverUrl.replace(/^http:\/\//, '')}${c.reset}`;
-  const row2Content = `${row2Col1}   ${row2Col2}   ${row2Col3}`;
+  // Interactive mascot & connection info rows
+  const m1 = `  ${c.magenta}∧,,∧${c.reset}   `;
+  const m2 = `${c.magenta}( ˘ᴗ˘ ) ${c.reset}`;
+  const m3 = `${c.magenta}c( つ🪄*${c.reset}`;
 
   const shortSession = sessionId && sessionId.length > 28 ? sessionId.slice(0, 26) + '…' : (sessionId || 'active');
-  const row3Col1 = `${c.dim}Session:${c.reset} ${c.slate}${shortSession}${c.reset}`;
-  const row3Col2 = `${c.dim}Permissions:${c.reset} ${c.amber}Smart Guardrails${c.reset}`;
-  const row3Content = `${row3Col1}   ${row3Col2}`;
+  const infoW = innerWidth - 9;
+  const r1Info = `${c.dim}Model:${c.reset} ${c.cyan}${c.bold}${model}${c.reset}   ${c.dim}Git:${c.reset} ${c.magenta} ${gitBranch}${c.reset}   ${c.dim}Endpoint:${c.reset} ${c.slate}${serverUrl.replace(/^http:\/\//, '')}${c.reset}`;
+  const r2Info = `${c.dim}Session:${c.reset} ${c.slate}${shortSession}${c.reset}   ${c.dim}Permissions:${c.reset} ${c.amber}Smart Guardrails${c.reset}`;
+  const r3Info = `${c.cyan}${c.bold}NexusAI:${c.reset} ${c.dim}"Siap membantumu coding. Ketik instruksi atau /help~"${c.reset}`;
 
   const hint1 = `${c.dim}Type your prompt to write code • Enter ${c.bold}${c.cyan}/${c.reset}${c.dim} or press ${c.bold}${c.cyan}[Tab]${c.reset}${c.dim} for slash commands${c.reset}`;
 
   console.log(`\n${c.cyan}╭${hr}╮${c.reset}`);
   console.log(`${c.cyan}│${c.reset}  ${topBrand}${' '.repeat(row1Gap)}${topStatus}  ${c.cyan}│${c.reset}`);
   console.log(`${c.cyan}├${hr}┤${c.reset}`);
-  console.log(`${c.cyan}│${c.reset}  ${padVisual(row2Content, innerWidth)}  ${c.cyan}│${c.reset}`);
-  console.log(`${c.cyan}│${c.reset}  ${padVisual(row3Content, innerWidth)}  ${c.cyan}│${c.reset}`);
-  console.log(`${c.cyan}│${c.reset}${' '.repeat(innerWidth + 2)}${c.cyan}│${c.reset}`);
+  console.log(`${c.cyan}│${c.reset}  ${padVisual(m1 + r1Info, innerWidth)}  ${c.cyan}│${c.reset}`);
+  console.log(`${c.cyan}│${c.reset}  ${padVisual(m2 + r2Info, innerWidth)}  ${c.cyan}│${c.reset}`);
+  console.log(`${c.cyan}│${c.reset}  ${padVisual(m3 + r3Info, innerWidth)}  ${c.cyan}│${c.reset}`);
+  console.log(`${c.cyan}├${hr}┤${c.reset}`);
   console.log(`${c.cyan}│${c.reset}  ${padVisual(hint1, innerWidth)}  ${c.cyan}│${c.reset}`);
   console.log(`${c.cyan}╰${hr}╯${c.reset}\n`);
 }
