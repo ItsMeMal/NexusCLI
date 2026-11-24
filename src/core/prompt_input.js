@@ -17,6 +17,7 @@ export const COMMANDS_REGISTRY = [
   { cmd: '/usage', cat: 'Model', desc: 'Alias for /cost', needsArg: false },
   { cmd: '/compact', cat: 'Model', desc: 'Manually prune and compact conversation context', needsArg: false },
   { cmd: '/doctor', cat: 'System', desc: 'Run system & workspace diagnostic health checks', needsArg: false },
+  { cmd: '/update', cat: 'System', desc: 'Update NexusCode from the latest GitHub main source', needsArg: false },
   { cmd: '/abort', cat: 'System', desc: 'Stop the currently running agent task', needsArg: false },
   { cmd: '/init', cat: 'System', desc: 'Scaffold .agent/ config & agent.config.json', needsArg: false },
   { cmd: '/sessions', cat: 'Session', desc: 'List all saved conversation sessions', needsArg: false },
