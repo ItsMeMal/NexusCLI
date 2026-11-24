@@ -143,31 +143,29 @@ function padPickerText(value, width) {
 
 export function formatPickerOption(option, { index = 0, selected = false, width = 76 } = {}) {
   const innerWidth = Math.max(12, width - 4);
-  const prefix = selected ? '›' : ' ';
-  const number = String(index + 1).padStart(2, ' ');
   const status = String(option.status || (option.active ? 'ACTIVE' : option.connected ? 'CONNECTED' : '')).toUpperCase();
   const statusWidth = Math.min(displayWidth(status), Math.max(0, Math.floor(innerWidth * 0.24)));
-  const fixedWidth = 1 + 1 + 2 + 1 + 2 + statusWidth;
-  const labelWidth = Math.max(8, Math.min(
-    displayWidth(option.label || ''),
-    Math.floor((innerWidth - fixedWidth) * 0.55)
-  ));
-  const descWidth = Math.max(0, innerWidth - fixedWidth - labelWidth - 2);
+  const prefixWidth = 5; // marker, index, and spacing
+  const statusReserve = status ? statusWidth + 1 : 0;
+  const available = Math.max(8, innerWidth - prefixWidth - statusReserve);
+  const labelWidth = Math.max(8, Math.min(displayWidth(option.label || ''), Math.floor(available * 0.58)));
+  const descWidth = Math.max(0, available - labelWidth - 2);
   const label = clipPickerText(option.label || '', labelWidth);
   const desc = clipPickerText(option.desc || '', descWidth);
-  const gap = ' '.repeat(Math.max(1, innerWidth - fixedWidth - displayWidth(label) - displayWidth(desc)));
-  const statusText = clipPickerText(status, statusWidth);
+  const prefix =
+    (selected ? c.cyan + c.bold + '›' + c.reset : c.dim + ' ' + c.reset) +
+    ' ' + c.muted + String(index + 1).padStart(2, ' ') + c.reset + ' ';
+  const labelPart = (selected ? c.brightWhite + c.bold : c.white) + label + c.reset;
+  const descPart = desc ? '  ' + c.dim + desc + c.reset : '';
   const statusColor = status.includes('ACTIVE') || status.includes('CONNECTED')
     ? c.green
     : status ? c.amber : c.reset;
-  const line =
-    (selected ? c.cyan + c.bold + prefix + c.reset : c.dim + prefix + c.reset) +
-    ' ' + c.muted + number + c.reset + ' ' +
-    (selected ? c.brightWhite + c.bold : c.white) + label + c.reset +
-    (desc ? '  ' + c.dim + desc + c.reset : '') +
-    gap +
-    (statusText ? statusColor + c.bold + statusText + c.reset : '');
-  return c.cyan + '│' + c.reset + ' ' + line + ' ' + c.cyan + '│' + c.reset;
+  const statusPart = status ? ' ' + statusColor + c.bold + clipPickerText(status, statusWidth) + c.reset : '';
+  const occupied = prefixWidth + displayWidth(label) +
+    (desc ? 2 + displayWidth(desc) : 0) +
+    (status ? 1 + statusWidth : 0);
+  const gap = ' '.repeat(Math.max(0, innerWidth - occupied));
+  return c.cyan + '│' + c.reset + ' ' + prefix + labelPart + descPart + gap + statusPart + ' ' + c.cyan + '│' + c.reset;
 }
 
 export async function promptSelect({ title, icon = '', options: opts = [], footer, searchable = false, maxVisible = 10 }) {
