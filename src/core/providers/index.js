@@ -76,7 +76,7 @@ export function parseModelConfig(configStr) {
     providerId === 'openai-compatible' && (process.env.BASE_URL || process.env.OPENAI_BASE_URL)
       ? {
           id: 'openai-compatible',
-          baseUrl: process.env.BASE_URL || process.env.OPENAI_BASE_URL,
+          baseUrl: String(process.env.BASE_URL || process.env.OPENAI_BASE_URL).replace(/\/+$/, ''),
           apiKey: process.env.API_KEY || process.env.OPENAI_API_KEY || '',
           protocol: 'openai-compatible',
           apiKeyEnv: process.env.API_KEY ? 'API_KEY' : 'OPENAI_API_KEY'
