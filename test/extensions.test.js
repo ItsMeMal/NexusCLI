@@ -84,7 +84,9 @@ test('plugin tools and lifecycle hooks run inside the agent loop', async (t) => 
 
       const toolMessage = messages.find(message => message.role === 'tool' && message.name === 'plugin_greet');
       assert.ok(toolMessage);
-      assert.equal(toolMessage.content, 'hello Nexus-before-after');
+      assert.match(toolMessage.content, /UNTRUSTED_EXTERNAL_DATA/);
+      assert.match(toolMessage.content, /hello Nexus-before-after/);
+      assert.match(toolMessage.content, /END_UNTRUSTED_EXTERNAL_DATA/);
       return { role: 'assistant', content: 'plugin workflow complete' };
     },
     ctx: {
