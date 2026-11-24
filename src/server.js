@@ -428,6 +428,12 @@ export function createNexusServer(options = {}) {
 
       const running = Array.from(activeRuns.values());
       for (const active of running) active.abortController.abort();
+
+      // Resolve outstanding approval prompts so shutdown cannot wait for their timeout.
+      for (const [permissionId, pending] of pendingPermissions) {
+        pendingPermissions.delete(permissionId);
+        pending.resolve(false);
+      }
       await Promise.allSettled(running.map(active => active.promise).filter(Boolean));
 
       await new Promise((resolve) => {
