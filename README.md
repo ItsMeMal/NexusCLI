@@ -243,18 +243,18 @@ The main agent can delegate focused work through the `task` tool. Independent ta
 
 ## Working with plugins
 
-Create a JavaScript or ESM module in `.agent/plugins/`, for example `.agent/plugins/example.js`:
+Plugins are loaded from `.agent/plugins/` when the local NexusCode server starts. Use `.js` or `.mjs` files (the package runs as an ES module).
+
+Create `.agent/plugins/example.js`:
 
 ```javascript
-export default function myPlugin({ hooks, registerTool }) {
+export default function myPlugin({ registerTool, hooks }) {
   registerTool({
     name: 'custom_ping',
     description: 'Return a response for a host.',
     parameters: {
       type: 'object',
-      properties: {
-        host: { type: 'string' }
-      },
+      properties: { host: { type: 'string' } },
       required: ['host']
     },
     async execute({ host }) {
@@ -262,13 +262,35 @@ export default function myPlugin({ hooks, registerTool }) {
     }
   });
 
-  hooks.before_tool.push(async ({ tool }) => {
-    console.log(`[plugin] Calling ${tool}`);
+  hooks.on_message.push(async ({ message }) => {
+    // The latest user message is mutable before it reaches the model.
+  });
+
+  hooks.before_tool.push(async ({ name, args }) => {
+    // Inspect or adjust tool arguments before permission checks.
+  });
+
+  hooks.after_tool.push(async (event) => {
+    // Inspect or transform event.output after execution.
   });
 }
 ```
 
-Plugins can register tools and attach handlers to `before_tool`, `after_tool`, and `on_message`.
+The plugin API provides:
+
+| API | Purpose |
+|---|---|
+| `registerTool(tool)` | Add a tool to the active agent registry |
+| `hooks.on_message` | Inspect or modify the latest user message |
+| `hooks.before_tool` | Inspect or modify arguments, or set `cancelled = true` and `reason` to block a call |
+| `hooks.after_tool` | Inspect or modify the completed tool output |
+| `on(name, handler)` | Register a handler for one of the supported lifecycle hooks |
+
+Hooks run sequentially. A failing hook is logged and does not prevent later hooks from running. Changes to `before_tool` arguments are still checked by the normal permission manager; a plugin hook cannot grant permission to a tool call.
+
+**Permission defaults:** plugin tools require approval in build mode and are blocked in read-only plan mode because their side effects cannot be inferred safely. Configure an explicit tool rule in `agent.config.json` only when you trust that plugin.
+
+Plugins execute as local JavaScript with the same operating-system permissions as the NexusCode process. Only install or enable code you trust. Restart the CLI/server after adding or changing a plugin.
 
 ## Custom slash commands
 
@@ -290,7 +312,9 @@ Run the command from the NexusCode prompt:
 
 ## Connect MCP servers
 
-Configure MCP servers in `.agent/mcp.json`. For example, a local stdio server:
+Configure MCP servers in `.agent/mcp.json`. NexusCode reads this file during startup, connects each configured server, discovers its tools, and registers them in the active agent tool registry. Connections are closed when the local server shuts down.
+
+The configuration supports all three client transports:
 
 ```json
 {
@@ -299,20 +323,35 @@ Configure MCP servers in `.agent/mcp.json`. For example, a local stdio server:
       "name": "filesystem",
       "command": "node",
       "args": ["examples/mcp-filesystem-server.mjs", "."]
+    },
+    {
+      "name": "remote-tools",
+      "url": "https://mcp.example.com/mcp",
+      "transport": "streamable-http"
+    },
+    {
+      "name": "legacy-service",
+      "url": "https://mcp.example.com/sse",
+      "transport": "sse"
     }
   ]
 }
 ```
 
-NexusCode discovers the server's tools and registers them with a server-name prefix:
+- **stdio** — use `command` and optional `args`, `env`, and `cwd`.
+- **Streamable HTTP** — use an HTTP(S) `url`; this is the default transport for URL-based servers and can be selected explicitly with `"transport": "streamable-http"`.
+- **SSE** — use an HTTP(S) `url` and set `"transport": "sse"` for servers that implement the legacy HTTP+SSE transport.
+
+Discovered tools are registered with a normalized server-name prefix, for example:
 
 ```text
-filesystem__tool_name
+filesystem__read_file
+remote_tools__search
 ```
 
-The MCP manager supports stdio, Streamable HTTP, and SSE transports.
+The prefix prevents tools from different servers from sharing the same namespace. If a connection fails, NexusCode reports that server as failed and continues loading other configured servers.
 
----
+**Permission defaults:** MCP tools require approval in build mode and are blocked in plan mode unless the permission model is deliberately changed in code. This prevents a remote tool with unknown side effects from bypassing read-only mode. Review the server and its tool descriptions before approving calls. MCP server processes and remote endpoints should be treated as trusted integrations.
 
 ## CLI commands
 
