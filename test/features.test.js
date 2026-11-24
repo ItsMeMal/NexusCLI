@@ -226,3 +226,17 @@ describe('UI Module', () => {
     assert.equal(s.active, false);
   });
 });
+
+import { COMMANDS_REGISTRY } from '../src/core/prompt_input.js';
+
+describe('Prompt Input Module', () => {
+  test('COMMANDS_REGISTRY contains core commands', () => {
+    assert.ok(COMMANDS_REGISTRY.length >= 18);
+    const cmds = COMMANDS_REGISTRY.map(c => c.cmd);
+    assert.ok(cmds.includes('/plan'));
+    assert.ok(cmds.includes('/build'));
+    assert.ok(cmds.includes('/diff'));
+    assert.ok(cmds.includes('/doctor'));
+    assert.ok(cmds.includes('/cost'));
+  });
+});

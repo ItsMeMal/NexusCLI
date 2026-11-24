@@ -24,6 +24,7 @@ import {
   renderCostReport,
   renderSecurityPrompt
 } from './core/ui.js';
+import { promptWithAutocomplete, COMMANDS_REGISTRY } from './core/prompt_input.js';
 
 function loadEnv() {
   const envPath = path.resolve(process.cwd(), '.env');
@@ -90,39 +91,6 @@ function parseArgs(argv) {
     i++;
   }
   return parsed;
-}
-
-// All available slash commands for completion and list
-const SLASH_COMMANDS = [
-  '/plan',
-  '/build',
-  '/diff',
-  '/undo',
-  '/redo',
-  '/checkpoints',
-  '/checkpoint',
-  '/model',
-  '/compact',
-  '/cost',
-  '/usage',
-  '/sessions',
-  '/resume',
-  '/new',
-  '/export',
-  '/doctor',
-  '/init',
-  '/clear',
-  '/help',
-  '/exit',
-  '/quit'
-];
-
-function completer(line) {
-  if (line.startsWith('/')) {
-    const hits = SLASH_COMMANDS.filter((cmd) => cmd.startsWith(line.toLowerCase()));
-    return [hits.length ? hits : SLASH_COMMANDS, line];
-  }
-  return [[], line];
 }
 
 // --- NexusClient ---
@@ -371,7 +339,7 @@ async function runNonInteractive(parsed) {
   process.exit(result.exitCode);
 }
 
-// --- Interactive Mode with Agency-Grade Animated UI ---
+// --- Interactive Mode with Real-Time Dropdown Palette ---
 
 async function runInteractive(parsed) {
   let localServer = null;
@@ -405,7 +373,7 @@ async function runInteractive(parsed) {
     }
   };
 
-  const executeTurn = async (userInput, rl, autoApprove = false) => {
+  const executeTurn = async (userInput, autoApprove = false) => {
     let tokenStreamStarted = false;
     const turnStartTime = Date.now();
     spinner.start('Thinking & analyzing workspace...');
@@ -443,31 +411,29 @@ async function runInteractive(parsed) {
           return;
         }
 
-        if (!rl) {
-          await client.answerPermission(event.id, false);
-          return;
-        }
-
         renderSecurityPrompt({
           tool: event.tool,
           args: event.args,
           reason: event.reason
         });
 
-        rl.question(`\n  ${c.bold}Authorize execution? (y/N): ${c.reset}`, async (ans) => {
-          const allow = ans.trim().toLowerCase() === 'y' || ans.trim().toLowerCase() === 'yes';
-          if (allow) {
-            console.log(`  ${c.green}✔ Action authorized.${c.reset}\n`);
-          } else {
-            console.log(`  ${c.red}✖ Action denied by user.${c.reset}\n`);
-          }
-          await client.answerPermission(event.id, allow);
+        const ans = await promptWithAutocomplete({
+          header: '',
+          arrow: `\n  ${c.bold}Authorize execution? (y/N): ${c.reset}`
         });
+
+        const allow = ans.trim().toLowerCase() === 'y' || ans.trim().toLowerCase() === 'yes';
+        if (allow) {
+          console.log(`  ${c.green}✔ Action authorized.${c.reset}\n`);
+        } else {
+          console.log(`  ${c.red}✖ Action denied by user.${c.reset}\n`);
+        }
+        await client.answerPermission(event.id, allow);
       },
       onDone: (doneData) => {
         spinner.stop(true);
         if (tokenStreamStarted) {
-          console.log('\n');
+          process.stdout.write('\n');
         }
         const duration = ((Date.now() - turnStartTime) / 1000).toFixed(1);
         if (doneData.usage) {
@@ -495,7 +461,7 @@ async function runInteractive(parsed) {
   // If a single inline prompt was provided without "run", execute turn and exit
   if (parsed.prompt) {
     try {
-      await executeTurn(parsed.prompt, null, true);
+      await executeTurn(parsed.prompt, true);
     } finally {
       await cleanup();
     }
@@ -512,13 +478,10 @@ async function runInteractive(parsed) {
     gitBranch: branch
   });
 
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-    completer
-  });
+  const commandHistory = [];
 
-  const promptUser = async () => {
+  // Main Interactive Loop
+  while (true) {
     const s = client.sessionData;
     const modeBadge = s.mode === 'plan'
       ? `${c.bgYellow}${c.black}${c.bold} PLAN ${c.reset}`
@@ -527,174 +490,168 @@ async function runInteractive(parsed) {
     const modelTag = `${c.cyan}${c.bold}${s.model || 'default'}${c.reset}`;
     const shortId = client.sessionId ? client.sessionId.slice(0, 16) + '…' : '';
 
-    // Modern 2-line Starship/Claude Code style prompt
-    const line1 = `${c.dim}╭─${c.reset} ${modeBadge} ${c.magenta} ${curBranch}${c.reset} ${c.dim}•${c.reset} ${modelTag} ${c.dim}(${shortId})${c.reset}\n`;
-    const line2 = `${c.dim}╰─${c.reset}${c.cyan}${c.bold}❯${c.reset} `;
-    const promptStr = line1 + line2;
+    // Modern Starship / Claude Code 2-line prompt with real-time slash suggestions
+    const header = `${c.dim}╭─${c.reset} ${modeBadge} ${c.magenta} ${curBranch}${c.reset} ${c.dim}•${c.reset} ${modelTag} ${c.dim}(${shortId})${c.reset}\n`;
+    const arrow = `${c.dim}╰─${c.reset}${c.cyan}${c.bold}❯${c.reset} `;
 
-    rl.question(promptStr, async (input) => {
-      const trimmed = input.trim();
-      if (!trimmed) {
-        promptUser();
-        return;
+    const input = await promptWithAutocomplete({
+      header,
+      arrow,
+      history: commandHistory
+    });
+
+    const trimmed = input.trim();
+    if (!trimmed) continue;
+    commandHistory.push(trimmed);
+
+    // Exit
+    if (trimmed === 'exit' || trimmed === 'quit' || trimmed === '/exit' || trimmed === '/quit') {
+      await cleanup();
+      console.log(`\n  ${c.dim}Sampai jumpa! 👋 Nexus session closed.${c.reset}\n`);
+      return;
+    }
+
+    // Help / Command list
+    if (trimmed === '/' || trimmed === '/help') {
+      renderCommandList();
+      continue;
+    }
+
+    // Plan mode
+    if (trimmed === '/plan') {
+      client.sessionData.mode = 'plan';
+      console.log(`\n  🔒 ${c.yellow}${c.bold}Switched to PLAN mode${c.reset} ${c.dim}(read-only). File modifications blocked.${c.reset}\n`);
+      continue;
+    }
+
+    // Build mode
+    if (trimmed === '/build') {
+      client.sessionData.mode = 'build';
+      console.log(`\n  ⚡ ${c.green}${c.bold}Switched to BUILD mode${c.reset} ${c.dim}(full execution). File writes & bash enabled.${c.reset}\n`);
+      continue;
+    }
+
+    // Model switch / info
+    if (trimmed.startsWith('/model')) {
+      const newModel = trimmed.slice(6).trim();
+      if (!newModel) {
+        console.log(`\n  ${c.bold}Active Model:${c.reset} ${c.cyan}${client.sessionData.model}${c.reset}`);
+        console.log(`  ${c.dim}Usage: /model <name> (e.g. gpt-4o, claude-3-5-sonnet-20241022, gemini-1.5-flash)${c.reset}\n`);
+      } else {
+        client.sessionData.model = newModel;
+        console.log(`\n  🎯 ${c.bold}Model switched to:${c.reset} ${c.cyan}${c.bold}${newModel}${c.reset}\n`);
       }
+      continue;
+    }
 
-      // Exit
-      if (trimmed === 'exit' || trimmed === 'quit' || trimmed === '/exit' || trimmed === '/quit') {
-        rl.close();
-        await cleanup();
-        console.log(`\n  ${c.dim}Sampai jumpa! 👋 Nexus session closed.${c.reset}\n`);
-        return;
+    // Cost & Usage report
+    if (trimmed === '/cost' || trimmed === '/usage') {
+      try {
+        const loaded = await client.loadSession(client.sessionId);
+        const config = getModelConfig(client.sessionData.model);
+        renderCostReport(loaded, config);
+      } catch (err) {
+        console.log(`\n  ${c.red}✖ Failed to load cost data:${c.reset} ${err.message}\n`);
       }
+      continue;
+    }
 
-      // Help / Command list (trigger if user types just '/' or '/help')
-      if (trimmed === '/' || trimmed === '/help') {
-        renderCommandList();
-        promptUser();
-        return;
-      }
-
-      // Plan mode
-      if (trimmed === '/plan') {
-        client.sessionData.mode = 'plan';
-        console.log(`\n  🔒 ${c.yellow}${c.bold}Switched to PLAN mode${c.reset} ${c.dim}(read-only). File modifications blocked.${c.reset}\n`);
-        promptUser();
-        return;
-      }
-
-      // Build mode
-      if (trimmed === '/build') {
-        client.sessionData.mode = 'build';
-        console.log(`\n  ⚡ ${c.green}${c.bold}Switched to BUILD mode${c.reset} ${c.dim}(full execution). File writes & bash enabled.${c.reset}\n`);
-        promptUser();
-        return;
-      }
-
-      // Model switch / info
-      if (trimmed.startsWith('/model')) {
-        const newModel = trimmed.slice(6).trim();
-        if (!newModel) {
-          console.log(`\n  ${c.bold}Active Model:${c.reset} ${c.cyan}${client.sessionData.model}${c.reset}`);
-          console.log(`  ${c.dim}Usage: /model <name> (e.g. gpt-4o, claude-3-5-sonnet-20241022, gemini-1.5-flash)${c.reset}\n`);
+    // Context compaction
+    if (trimmed === '/compact') {
+      spinner.start('Compacting conversation context history...');
+      try {
+        const res = await client.compactSession();
+        if (res.compacted) {
+          spinner.succeed(`Context compacted: ${res.beforeTokens.toLocaleString()} -> ${res.afterTokens.toLocaleString()} tokens (${c.green}saved ${res.savedTokens.toLocaleString()} tokens${c.reset})`);
         } else {
-          client.sessionData.model = newModel;
-          console.log(`\n  🎯 ${c.bold}Model switched to:${c.reset} ${c.cyan}${c.bold}${newModel}${c.reset}\n`);
+          spinner.info(res.message || 'Context history is already compact.');
         }
-        promptUser();
-        return;
+        console.log('');
+      } catch (err) {
+        spinner.fail(`Compaction failed: ${err.message}`);
+        console.log('');
       }
+      continue;
+    }
 
-      // Cost & Usage report
-      if (trimmed === '/cost' || trimmed === '/usage') {
-        try {
-          const loaded = await client.loadSession(client.sessionId);
-          const config = getModelConfig(client.sessionData.model);
-          renderCostReport(loaded, config);
-        } catch (err) {
-          console.log(`\n  ${c.red}✖ Failed to load cost data:${c.reset} ${err.message}\n`);
-        }
-        promptUser();
-        return;
-      }
-
-      // Context compaction
-      if (trimmed === '/compact') {
-        spinner.start('Compacting conversation context history...');
-        try {
-          const res = await client.compactSession();
-          if (res.compacted) {
-            spinner.succeed(`Context compacted: ${res.beforeTokens.toLocaleString()} -> ${res.afterTokens.toLocaleString()} tokens (${c.green}saved ${res.savedTokens.toLocaleString()} tokens${c.reset})`);
-          } else {
-            spinner.info(res.message || 'Context history is already compact.');
+    // Git Diff
+    if (trimmed === '/diff') {
+      const diffRes = await snapshotManager.getDiff();
+      if (!diffRes.success) {
+        console.log(`\n  ${c.amber}⚠️  ${diffRes.message}${c.reset}\n`);
+      } else if (!diffRes.diff && !diffRes.status) {
+        console.log(`\n  ${c.green}✔ Working directory clean.${c.reset} No unstaged or modified files.\n`);
+      } else {
+        console.log(`\n${c.cyan}╭── 📂 WORKSPACE DIFF (vs ${diffRes.compareRef}) ─────────────────────────────╮${c.reset}`);
+        if (diffRes.status) {
+          console.log(`${c.cyan}│${c.reset}  ${c.bold}Modified files:${c.reset}`);
+          for (const sLine of diffRes.status.split('\n')) {
+            if (sLine.trim()) console.log(`${c.cyan}│${c.reset}    ${c.amber}${sLine}${c.reset}`);
           }
-          console.log('');
-        } catch (err) {
-          spinner.fail(`Compaction failed: ${err.message}`);
-          console.log('');
         }
-        promptUser();
-        return;
-      }
-
-      // Git Diff
-      if (trimmed === '/diff') {
-        const diffRes = await snapshotManager.getDiff();
-        if (!diffRes.success) {
-          console.log(`\n  ${c.amber}⚠️  ${diffRes.message}${c.reset}\n`);
-        } else if (!diffRes.diff && !diffRes.status) {
-          console.log(`\n  ${c.green}✔ Working directory clean.${c.reset} No unstaged or modified files.\n`);
-        } else {
-          console.log(`\n${c.cyan}╭── 📂 WORKSPACE DIFF (vs ${diffRes.compareRef}) ─────────────────────────────╮${c.reset}`);
-          if (diffRes.status) {
-            console.log(`${c.cyan}│${c.reset}  ${c.bold}Modified files:${c.reset}`);
-            for (const sLine of diffRes.status.split('\n')) {
-              if (sLine.trim()) console.log(`${c.cyan}│${c.reset}    ${c.amber}${sLine}${c.reset}`);
+        if (diffRes.diff) {
+          console.log(`${c.cyan}├─────────────────────────────────────────────────────────────────────────────┤${c.reset}`);
+          for (const line of diffRes.diff.split('\n')) {
+            if (line.startsWith('+') && !line.startsWith('+++')) {
+              console.log(`${c.cyan}│${c.reset} ${c.green}${line}${c.reset}`);
+            } else if (line.startsWith('-') && !line.startsWith('---')) {
+              console.log(`${c.cyan}│${c.reset} ${c.red}${line}${c.reset}`);
+            } else if (line.startsWith('@@')) {
+              console.log(`${c.cyan}│${c.reset} ${c.cyan}${line}${c.reset}`);
+            } else {
+              console.log(`${c.cyan}│${c.reset} ${c.dim}${line}${c.reset}`);
             }
           }
-          if (diffRes.diff) {
-            console.log(`${c.cyan}├─────────────────────────────────────────────────────────────────────────────┤${c.reset}`);
-            for (const line of diffRes.diff.split('\n')) {
-              if (line.startsWith('+') && !line.startsWith('+++')) {
-                console.log(`${c.cyan}│${c.reset} ${c.green}${line}${c.reset}`);
-              } else if (line.startsWith('-') && !line.startsWith('---')) {
-                console.log(`${c.cyan}│${c.reset} ${c.red}${line}${c.reset}`);
-              } else if (line.startsWith('@@')) {
-                console.log(`${c.cyan}│${c.reset} ${c.cyan}${line}${c.reset}`);
-              } else {
-                console.log(`${c.cyan}│${c.reset} ${c.dim}${line}${c.reset}`);
-              }
-            }
-          }
-          console.log(`${c.cyan}╰─────────────────────────────────────────────────────────────────────────────╯${c.reset}\n`);
         }
-        promptUser();
-        return;
+        console.log(`${c.cyan}╰─────────────────────────────────────────────────────────────────────────────╯${c.reset}\n`);
       }
+      continue;
+    }
 
-      // Doctor / Diagnostics
-      if (trimmed === '/doctor') {
-        spinner.start('Running system diagnostic health checks...');
-        const isGit = await isGitRepo(process.cwd());
-        const hasDocker = await isDockerAvailable();
-        const activeModel = client.sessionData.model;
-        const providerName = activeModel.includes('/') ? activeModel.split('/')[0] : 'openai-compatible';
-        const hasKey = Boolean(process.env.API_KEY || process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY || process.env.GEMINI_API_KEY);
+    // Doctor / Diagnostics
+    if (trimmed === '/doctor') {
+      spinner.start('Running system diagnostic health checks...');
+      const isGit = await isGitRepo(process.cwd());
+      const hasDocker = await isDockerAvailable();
+      const activeModel = client.sessionData.model;
+      const providerName = activeModel.includes('/') ? activeModel.split('/')[0] : 'openai-compatible';
+      const hasKey = Boolean(process.env.API_KEY || process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY || process.env.GEMINI_API_KEY);
 
-        let subagentsCount = 0;
-        try {
-          const agentsDir = path.resolve(process.cwd(), '.agent', 'agents');
-          if (fs.existsSync(agentsDir)) {
-            subagentsCount = fs.readdirSync(agentsDir).filter(f => f.endsWith('.md')).length;
-          }
-        } catch {}
+      let subagentsCount = 0;
+      try {
+        const agentsDir = path.resolve(process.cwd(), '.agent', 'agents');
+        if (fs.existsSync(agentsDir)) {
+          subagentsCount = fs.readdirSync(agentsDir).filter(f => f.endsWith('.md')).length;
+        }
+      } catch {}
 
-        const auditPath = path.resolve(process.cwd(), '.agent', 'audit.log');
-        const hasAudit = fs.existsSync(auditPath);
+      const auditPath = path.resolve(process.cwd(), '.agent', 'audit.log');
+      const hasAudit = fs.existsSync(auditPath);
 
-        spinner.stop(true);
-        renderDoctorReport({
-          nodeOk: parseInt(process.versions.node.split('.')[0], 10) >= 20,
-          gitOk: isGit,
-          gitStatus: isGit ? 'Initialized git repository' : 'Not a git repo (run git init)',
-          dockerOk: hasDocker,
-          dockerStatus: hasDocker ? 'Available (sandbox enabled)' : 'Host exec mode (daemon offline)',
-          modelOk: true,
-          model: activeModel,
-          provider: providerName,
-          apiKeyOk: hasKey,
-          apiKeyStatus: hasKey ? 'Configured in environment' : 'Missing (set API_KEY in .env)',
-          toolsCount: defaultRegistry.list().length,
-          agentsCount: subagentsCount,
-          auditOk: hasAudit,
-          auditStatus: hasAudit ? `Present (${path.basename(auditPath)})` : 'Will create upon first tool call',
-          allHealthy: isGit && hasKey
-        });
-        promptUser();
-        return;
-      }
+      spinner.stop(true);
+      renderDoctorReport({
+        nodeOk: parseInt(process.versions.node.split('.')[0], 10) >= 20,
+        gitOk: isGit,
+        gitStatus: isGit ? 'Initialized git repository' : 'Not a git repo (run git init)',
+        dockerOk: hasDocker,
+        dockerStatus: hasDocker ? 'Available (sandbox enabled)' : 'Host exec mode (daemon offline)',
+        modelOk: true,
+        model: activeModel,
+        provider: providerName,
+        apiKeyOk: hasKey,
+        apiKeyStatus: hasKey ? 'Configured in environment' : 'Missing (set API_KEY in .env)',
+        toolsCount: defaultRegistry.list().length,
+        agentsCount: subagentsCount,
+        auditOk: hasAudit,
+        auditStatus: hasAudit ? `Present (${path.basename(auditPath)})` : 'Will create upon first tool call',
+        allHealthy: isGit && hasKey
+      });
+      continue;
+    }
 
-      // Init workspace
-      if (trimmed === '/init') {
+    // Init workspace
+    if (trimmed === '/init') {
+      try {
         const dirs = [
           path.resolve(process.cwd(), '.agent', 'agents'),
           path.resolve(process.cwd(), '.agent', 'commands'),
@@ -733,148 +690,136 @@ async function runInteractive(parsed) {
         console.log(`\n  ${c.green}✔ Workspace initialized for Nexus Agent.${c.reset}`);
         console.log(`  ${c.dim}Directories:${c.reset} .agent/{agents, commands, plugins, sessions}`);
         console.log(`  ${c.dim}Config:${c.reset}      agent.config.json\n`);
-        promptUser();
-        return;
+      } catch (err) {
+        console.log(`\n  ${c.red}✖ Failed to init:${c.reset} ${err.message}\n`);
       }
+      continue;
+    }
 
-      // New session
-      if (trimmed === '/new') {
-        const fresh = await client.createSession({ mode: 'build', model: client.sessionData.model });
-        console.log(`\n  ✨ ${c.green}${c.bold}Fresh session initialized:${c.reset} ${c.cyan}${fresh.id}${c.reset}\n`);
-        promptUser();
-        return;
+    // New session
+    if (trimmed === '/new') {
+      const fresh = await client.createSession({ mode: 'build', model: client.sessionData.model });
+      console.log(`\n  ✨ ${c.green}${c.bold}Fresh session initialized:${c.reset} ${c.cyan}${fresh.id}${c.reset}\n`);
+      continue;
+    }
+
+    // List sessions
+    if (trimmed === '/sessions') {
+      const list = await client.listSessions();
+      console.log(`\n${c.cyan}╭── 💬 SAVED CONVERSATION SESSIONS ──────────────────────────────────────────╮${c.reset}`);
+      for (const s of list) {
+        const activeMark = s.id === client.sessionId ? ` ${c.green}${c.bold}◀ ACTIVE${c.reset}` : '';
+        const dateStr = new Date(s.updatedAt).toLocaleString();
+        const modeTag = s.mode === 'plan' ? `${c.yellow}[PLAN]${c.reset}` : `${c.green}[BUILD]${c.reset}`;
+        console.log(`${c.cyan}│${c.reset}  ${c.bold}${s.id}${c.reset}${activeMark}`);
+        console.log(`${c.cyan}│${c.reset}    ${modeTag} ${c.dim}Model:${c.reset} ${c.cyan}${s.model || 'default'}${c.reset} ${c.dim}• ${s.messageCount} msgs • ${(s.tokens || 0).toLocaleString()} tok • ${dateStr}${c.reset}`);
       }
+      console.log(`${c.cyan}╰────────────────────────────────────────────────────────────────────────────╯${c.reset}\n`);
+      continue;
+    }
 
-      // List sessions
-      if (trimmed === '/sessions') {
-        const list = await client.listSessions();
-        console.log(`\n${c.cyan}╭── 💬 SAVED CONVERSATION SESSIONS ──────────────────────────────────────────╮${c.reset}`);
-        for (const s of list) {
-          const activeMark = s.id === client.sessionId ? ` ${c.green}${c.bold}◀ ACTIVE${c.reset}` : '';
-          const dateStr = new Date(s.updatedAt).toLocaleString();
-          const modeTag = s.mode === 'plan' ? `${c.yellow}[PLAN]${c.reset}` : `${c.green}[BUILD]${c.reset}`;
-          console.log(`${c.cyan}│${c.reset}  ${c.bold}${s.id}${c.reset}${activeMark}`);
-          console.log(`${c.cyan}│${c.reset}    ${modeTag} ${c.dim}Model:${c.reset} ${c.cyan}${s.model || 'default'}${c.reset} ${c.dim}• ${s.messageCount} msgs • ${(s.tokens || 0).toLocaleString()} tok • ${dateStr}${c.reset}`);
+    // Resume session
+    if (trimmed.startsWith('/resume')) {
+      const targetId = trimmed.slice(7).trim();
+      if (!targetId) {
+        console.log(`\n  ${c.dim}Usage: /resume <session_id>${c.reset}\n`);
+      } else {
+        try {
+          const resumed = await client.loadSession(targetId);
+          console.log(`\n  📂 ${c.green}${c.bold}Resumed session:${c.reset} ${c.cyan}${resumed.id}${c.reset} ${c.dim}(${resumed.messages?.length || 0} messages loaded)${c.reset}\n`);
+        } catch (err) {
+          console.log(`\n  ${c.red}✖ Failed to resume:${c.reset} ${err.message}\n`);
+        }
+      }
+      continue;
+    }
+
+    // Clear screen
+    if (trimmed === '/clear') {
+      console.clear();
+      const curBranch = await snapshotManager.getCurrentBranch();
+      renderBanner({
+        sessionId: client.sessionId,
+        mode: client.sessionData.mode,
+        model: client.sessionData.model,
+        serverUrl,
+        gitBranch: curBranch
+      });
+      continue;
+    }
+
+    // Undo
+    if (trimmed === '/undo') {
+      const res = await snapshotManager.undo();
+      if (res.success) {
+        console.log(`\n  ↩️  ${c.green}${res.message}${c.reset}\n`);
+      } else {
+        console.log(`\n  ⚠️  ${c.yellow}${res.message}${c.reset}\n`);
+      }
+      continue;
+    }
+
+    // Redo
+    if (trimmed === '/redo') {
+      const res = await snapshotManager.redo();
+      if (res.success) {
+        console.log(`\n  ↪️  ${c.green}${res.message}${c.reset}\n`);
+      } else {
+        console.log(`\n  ⚠️  ${c.yellow}${res.message}${c.reset}\n`);
+      }
+      continue;
+    }
+
+    // List checkpoints
+    if (trimmed === '/checkpoints') {
+      const cps = snapshotManager.listCheckpoints();
+      if (cps.length === 0) {
+        console.log(`\n  ${c.dim}No checkpoints captured in this session yet.${c.reset}\n`);
+      } else {
+        console.log(`\n${c.cyan}╭── 📌 GIT CHECKPOINTS HISTORY ──────────────────────────────────────────────╮${c.reset}`);
+        for (const cp of cps) {
+          const marker = cp.current ? ` ${c.green}${c.bold}◀ current${c.reset}` : '';
+          const dateStr = new Date(cp.timestamp).toLocaleTimeString();
+          console.log(`${c.cyan}│${c.reset}  [${cp.index}] ${c.bold}${cp.ref}${c.reset} "${c.cyan}${cp.label}${c.reset}" ${c.dim}${dateStr}${c.reset}${marker}`);
         }
         console.log(`${c.cyan}╰────────────────────────────────────────────────────────────────────────────╯${c.reset}\n`);
-        promptUser();
-        return;
       }
+      continue;
+    }
 
-      // Resume session
-      if (trimmed.startsWith('/resume')) {
-        const targetId = trimmed.slice(7).trim();
-        if (!targetId) {
-          console.log(`\n  ${c.dim}Usage: /resume <session_id>${c.reset}\n`);
-        } else {
-          try {
-            const resumed = await client.loadSession(targetId);
-            console.log(`\n  📂 ${c.green}${c.bold}Resumed session:${c.reset} ${c.cyan}${resumed.id}${c.reset} ${c.dim}(${resumed.messages?.length || 0} messages loaded)${c.reset}\n`);
-          } catch (err) {
-            console.log(`\n  ${c.red}✖ Failed to resume:${c.reset} ${err.message}\n`);
-          }
-        }
-        promptUser();
-        return;
+    // Create manual checkpoint
+    if (trimmed.startsWith('/checkpoint')) {
+      const label = trimmed.slice(11).trim() || undefined;
+      const res = await snapshotManager.createCheckpoint(label);
+      if (res.success) {
+        console.log(`\n  📌 ${c.green}Checkpoint created:${c.reset} [${res.index}] ${c.bold}${res.ref}${c.reset} "${c.cyan}${res.label}${c.reset}"\n`);
+      } else {
+        console.log(`\n  ⚠️  ${c.yellow}${res.message}${c.reset}\n`);
       }
+      continue;
+    }
 
-      // Clear screen
-      if (trimmed === '/clear') {
-        console.clear();
-        const curBranch = await snapshotManager.getCurrentBranch();
-        renderBanner({
-          sessionId: client.sessionId,
-          mode: client.sessionData.mode,
-          model: client.sessionData.model,
-          serverUrl,
-          gitBranch: curBranch
-        });
-        promptUser();
-        return;
-      }
-
-      // Undo
-      if (trimmed === '/undo') {
-        const res = await snapshotManager.undo();
-        if (res.success) {
-          console.log(`\n  ↩️  ${c.green}${res.message}${c.reset}\n`);
-        } else {
-          console.log(`\n  ⚠️  ${c.yellow}${res.message}${c.reset}\n`);
-        }
-        promptUser();
-        return;
-      }
-
-      // Redo
-      if (trimmed === '/redo') {
-        const res = await snapshotManager.redo();
-        if (res.success) {
-          console.log(`\n  ↪️  ${c.green}${res.message}${c.reset}\n`);
-        } else {
-          console.log(`\n  ⚠️  ${c.yellow}${res.message}${c.reset}\n`);
-        }
-        promptUser();
-        return;
-      }
-
-      // List checkpoints
-      if (trimmed === '/checkpoints') {
-        const cps = snapshotManager.listCheckpoints();
-        if (cps.length === 0) {
-          console.log(`\n  ${c.dim}No checkpoints captured in this session yet.${c.reset}\n`);
-        } else {
-          console.log(`\n${c.cyan}╭── 📌 GIT CHECKPOINTS HISTORY ──────────────────────────────────────────────╮${c.reset}`);
-          for (const cp of cps) {
-            const marker = cp.current ? ` ${c.green}${c.bold}◀ current${c.reset}` : '';
-            const dateStr = new Date(cp.timestamp).toLocaleTimeString();
-            console.log(`${c.cyan}│${c.reset}  [${cp.index}] ${c.bold}${cp.ref}${c.reset} "${c.cyan}${cp.label}${c.reset}" ${c.dim}${dateStr}${c.reset}${marker}`);
-          }
-          console.log(`${c.cyan}╰────────────────────────────────────────────────────────────────────────────╯${c.reset}\n`);
-        }
-        promptUser();
-        return;
-      }
-
-      // Create manual checkpoint
-      if (trimmed.startsWith('/checkpoint')) {
-        const label = trimmed.slice(11).trim() || undefined;
-        const res = await snapshotManager.createCheckpoint(label);
-        if (res.success) {
-          console.log(`\n  📌 ${c.green}Checkpoint created:${c.reset} [${res.index}] ${c.bold}${res.ref}${c.reset} "${c.cyan}${res.label}${c.reset}"\n`);
-        } else {
-          console.log(`\n  ⚠️  ${c.yellow}${res.message}${c.reset}\n`);
-        }
-        promptUser();
-        return;
-      }
-
-      // Export session to HTML
-      if (trimmed.startsWith('/export')) {
-        const outputArg = trimmed.slice(7).trim();
-        const outputPath = outputArg || `nexus-session-${client.sessionId}.html`;
-        try {
-          const sessionData = await client.loadSession(client.sessionId);
-          exportSessionToHTML(sessionData, outputPath);
-          console.log(`\n  📄 ${c.green}Session exported to HTML:${c.reset} ${c.bold}${path.resolve(outputPath)}${c.reset}\n`);
-        } catch (err) {
-          console.log(`\n  ${c.red}✖ Export failed:${c.reset} ${err.message}\n`);
-        }
-        promptUser();
-        return;
-      }
-
-      // Regular LLM conversation turn
+    // Export session to HTML
+    if (trimmed.startsWith('/export')) {
+      const outputArg = trimmed.slice(7).trim();
+      const outputPath = outputArg || `nexus-session-${client.sessionId}.html`;
       try {
-        await executeTurn(trimmed, rl, false);
-      } catch (turnErr) {
-        console.error(`\n  ${c.red}✖ Execution Error:${c.reset} ${turnErr.message}\n`);
+        const sessionData = await client.loadSession(client.sessionId);
+        exportSessionToHTML(sessionData, outputPath);
+        console.log(`\n  📄 ${c.green}Session exported to HTML:${c.reset} ${c.bold}${path.resolve(outputPath)}${c.reset}\n`);
+      } catch (err) {
+        console.log(`\n  ${c.red}✖ Export failed:${c.reset} ${err.message}\n`);
       }
+      continue;
+    }
 
-      promptUser();
-    });
-  };
-
-  promptUser();
+    // Regular LLM conversation turn
+    try {
+      await executeTurn(trimmed, false);
+    } catch (turnErr) {
+      console.error(`\n  ${c.red}✖ Execution Error:${c.reset} ${turnErr.message}\n`);
+    }
+  }
 }
 
 // --- Main Entry ---
