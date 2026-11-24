@@ -45,6 +45,9 @@ export class PluginManager {
           if (!tool || typeof tool !== 'object') {
             throw new Error('registerTool expects a tool definition object.');
           }
+          if (registry.has(tool.name)) {
+            throw new Error(`Tool "${tool.name}" is already registered and cannot be replaced by a plugin.`);
+          }
           registry.register({ ...tool, source: tool.source || 'plugin' });
         };
         const ctx = {
