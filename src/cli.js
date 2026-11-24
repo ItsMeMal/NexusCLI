@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * Nexus Coding Agent CLI
+ * Nexus Orchestrator CLI
  * Main entry point for interactive terminal and non-interactive CI execution.
  */
 
@@ -25,7 +25,7 @@ import {
   renderSecurityPrompt
 } from './core/ui.js';
 import { promptWithAutocomplete, promptSelect, COMMANDS_REGISTRY } from './core/prompt_input.js';
-import { getProviderCatalog } from './core/providers/index.js';
+import { addProvider, getProviderCatalog, listAllModels, listProviderModels, removeProvider } from './core/providers/index.js';
 
 function loadEnv() {
   const envPath = path.resolve(process.cwd(), '.env');
@@ -285,7 +285,7 @@ async function runNonInteractive(parsed) {
   }
 
   const client = new NexusClient({ serverUrl, token });
-  const model = parsed.model || process.env.MODEL || 'Elaina-Free';
+  const model = parsed.model || process.env.MODEL || '';
   await client.createSession({ mode: parsed.mode, model });
 
   const result = {
@@ -376,7 +376,7 @@ async function runInteractive(parsed) {
   }
 
   const client = new NexusClient({ serverUrl, token });
-  const initialModel = parsed.model || process.env.MODEL || 'Elaina-Free';
+  const initialModel = parsed.model || process.env.MODEL || '';
   const initialMode = parsed.mode || 'build';
 
   await client.createSession({ mode: initialMode, model: initialModel });
@@ -547,116 +547,161 @@ async function runInteractive(parsed) {
       continue;
     }
 
-    // Model switch / info
-    if (trimmed.startsWith('/model')) {
-      const newModel = trimmed.slice(6).trim();
-      if (!newModel) {
-        console.log(`\n  ${c.bold}Active Model:${c.reset} ${c.cyan}${client.sessionData.model}${c.reset}`);
-        console.log(`  ${c.dim}Usage: /model <name> (e.g. gpt-4o, claude-3-5-sonnet-20241022, gemini-1.5-flash)${c.reset}\n`);
-      } else {
-        await client.updateSessionSettings({ model: newModel });
-        console.log(`\n  🎯 ${c.bold}Model switched to:${c.reset} ${c.cyan}${c.bold}${newModel}${c.reset}\n`);
+    // Model discovery and selection across every configured provider.
+    if (trimmed === '/model' || trimmed === '/model list') {
+      spinner.start('Discovering configured provider models...');
+      try {
+        const catalog = await listAllModels();
+        spinner.stop(true);
+        if (!catalog.models.length) {
+          const errors = catalog.errors.map(item => item.providerId + ': ' + item.error).join('\n');
+          console.log('\n  No models were discovered. Check provider credentials and /provider configuration.');
+          if (errors) console.log('  ' + errors);
+          console.log('');
+          continue;
+        }
+        const selected = await promptSelect({
+          title: 'AVAILABLE MODELS',
+          icon: '◈',
+          options: catalog.models.map(model => ({
+            label: model.model,
+            desc: model.providerLabel + ' • ' + model.id,
+            active: model.id === client.sessionData.model
+          })),
+          footer: '↑↓ pilih • [Enter] gunakan model • [Esc] batal'
+        });
+        if (selected >= 0) {
+          const model = catalog.models[selected];
+          await client.updateSessionSettings({ model: model.id });
+          console.log('\n  Model aktif: ' + c.cyan + model.id + c.reset + '\n');
+        }
+      } catch (err) {
+        spinner.fail('Model discovery failed: ' + err.message);
       }
       continue;
     }
 
-    // Provider selection UI. Legacy /provider add|list|remove forms remain available below.
+    if (trimmed.startsWith('/model ')) {
+      const newModel = trimmed.slice(7).trim();
+      try {
+        await client.updateSessionSettings({ model: newModel });
+        console.log('\n  Model aktif: ' + c.cyan + newModel + c.reset + '\n');
+      } catch (err) {
+        console.log('\n  ' + c.red + 'Gagal mengganti model: ' + err.message + c.reset + '\n');
+      }
+      continue;
+    }
+
+    // Provider registry: custom gateways are configured locally; secrets stay in environment variables.
+    if (trimmed.startsWith('/provider add ')) {
+      const parts = trimmed.slice('/provider add'.length).trim().split(/\s+/);
+      const [id, baseUrl, apiKeyEnv, modelToken = '', ...labelParts] = parts;
+      if (!id || !baseUrl || !apiKeyEnv) {
+        console.log('\n  Usage: /provider add <id> <base_url> <api_key_env> [default_model|-] [label...]');
+        console.log('  Example: /provider add openrouter https://openrouter.ai/api/v1 OPENROUTER_API_KEY - OpenRouter\n');
+        continue;
+      }
+      try {
+        const provider = addProvider({
+          id,
+          baseUrl,
+          apiKeyEnv,
+          defaultModel: modelToken === '-' ? '' : modelToken,
+          label: labelParts.join(' ') || id
+        });
+        console.log('\n  Provider saved locally: ' + c.cyan + provider.id + c.reset);
+        console.log('  API key reference: ' + provider.apiKeyEnv + (process.env[provider.apiKeyEnv] ? ' (available)' : ' (not set)'));
+        console.log('  Set that variable in your private .env or shell environment. No key is stored in the repository.\n');
+      } catch (err) {
+        console.log('\n  ' + c.red + 'Gagal menambahkan provider: ' + err.message + c.reset + '\n');
+      }
+      continue;
+    }
+
+    if (trimmed.startsWith('/provider remove ')) {
+      const id = trimmed.slice('/provider remove'.length).trim();
+      const removed = removeProvider(id);
+      console.log(removed
+        ? '\n  Provider ' + id + ' removed from local registry.\n'
+        : '\n  Provider not found in the local registry (environment-managed providers cannot be removed here).\n');
+      continue;
+    }
+
+    if (trimmed === '/provider list') {
+      const providers = getProviderCatalog(client.sessionData.model);
+      if (!providers.length) {
+        console.log('\n  No providers configured. Add one with /provider add.\n');
+      } else {
+        console.log('\n  CONFIGURED PROVIDERS');
+        for (const provider of providers) {
+          console.log('  • ' + provider.label + ' (' + provider.id + ')' +
+            (provider.active ? ' ◀ active' : '') +
+            ' — ' + (provider.configured ? 'API key ready' : 'missing ' + provider.keyVariable) +
+            ' — ' + provider.baseUrl);
+        }
+        console.log('');
+      }
+      continue;
+    }
+
     if (trimmed === '/provider') {
       const providers = getProviderCatalog(client.sessionData.model);
       const selectedIndex = await promptSelect({
-        title: 'SELECT PROVIDER',
+        title: 'CONFIGURED PROVIDERS',
         icon: '🔌',
-        options: providers.map(provider => ({
-          label: provider.label,
-          desc: `${provider.model} • ${provider.configured ? 'API key ready' : `missing ${provider.keyVariable}`}`,
-          active: provider.active
-        })),
-        footer: '↑↓ pilih • [Enter] aktifkan • [Esc] batal'
+        options: [
+          ...providers.map(provider => ({
+            label: provider.label + ' (' + provider.id + ')',
+            desc: (provider.configured ? 'API key ready' : 'missing ' + provider.keyVariable) + ' • ' + provider.baseUrl,
+            active: provider.active
+          })),
+          { label: '+ Add provider', desc: 'Register any OpenAI-compatible router or gateway' }
+        ],
+        footer: '↑↓ pilih • [Enter] pilih • [Esc] batal'
       });
-
       if (selectedIndex < 0) continue;
+      if (selectedIndex === providers.length) {
+        console.log('\n  /provider add <id> <base_url> <api_key_env> [default_model|-] [label...]');
+        console.log('  Example: /provider add openrouter https://openrouter.ai/api/v1 OPENROUTER_API_KEY - OpenRouter\n');
+        continue;
+      }
+
       const provider = providers[selectedIndex];
       if (!provider.configured) {
-        console.log(`\\n  ${c.yellow}Provider ${provider.label} belum dikonfigurasi. Atur ${provider.keyVariable} di .env terlebih dahulu.${c.reset}\\n`);
+        console.log('\n  Missing API key. Set ' + provider.keyVariable + ' in your private environment, then retry.\n');
         continue;
       }
 
-      try {
-        const model = `${provider.name}/${provider.model}`;
-        await client.updateSessionSettings({ model });
-        console.log(`\\n  🔌 ${c.green}Provider aktif: ${provider.label} • ${provider.model}${c.reset}\\n`);
-      } catch (err) {
-        console.log(`\\n  ${c.red}Gagal mengganti provider: ${err.message}${c.reset}\\n`);
-      }
-      continue;
-    }
-
-    if (trimmed.startsWith('/provider')) {
-      const args = trimmed.slice(9).trim().split(/\s+/);
-      const subCmd = args[0]?.toLowerCase() || 'list';
-      const providersDir = path.resolve(process.cwd(), '.agent', 'providers');
-      
-      if (!fs.existsSync(providersDir)) {
-        fs.mkdirSync(providersDir, { recursive: true });
-      }
-      
-      const configPath = path.resolve(providersDir, 'config.json');
-      let providers = { providers: {} };
-      if (fs.existsSync(configPath)) {
-        try {
-          providers = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-        } catch {}
-      }
-      
-      if (subCmd === 'list') {
-        console.log(`\n${c.cyan}╭── 🔌 CONFIGURED PROVIDERS ─────────────────────────────────────────────────╮${c.reset}`);
-        const providerEntries = Object.entries(providers.providers || {});
-        if (providerEntries.length === 0) {
-          console.log(`${c.cyan}│${c.reset}  ${c.dim}No providers configured. Use /provider add <name> <base_url> <api_key>${c.reset}`);
+      spinner.start('Discovering models from ' + provider.label + '...');
+      const catalog = await listProviderModels(provider.id).then(models => ({ models, error: null }))
+        .catch(error => ({ models: [], error }));
+      spinner.stop(true);
+      if (!catalog.models.length) {
+        if (provider.defaultModel) {
+          await client.updateSessionSettings({ model: provider.id + '/' + provider.defaultModel });
+          console.log('\n  Provider aktif: ' + provider.label + ' • ' + provider.defaultModel + '\n');
         } else {
-          for (const [name, cfg] of providerEntries) {
-            const activeMark = name === client.sessionData.provider ? ` ${c.green}${c.bold}◀ ACTIVE${c.reset}` : '';
-            const modelCount = Array.isArray(cfg.models) ? cfg.models.length : 0;
-            console.log(`${c.cyan}│${c.reset}  ${c.bold}${name}${c.reset}${activeMark}`);
-            console.log(`${c.cyan}│${c.reset}    ${c.dim}Base URL:${c.reset} ${c.slate}${cfg.base_url || 'N/A'}${c.reset}  ${c.dim}Models:${c.reset} ${modelCount}`);
-          }
+          console.log('\n  No models returned by ' + provider.label + '. ' +
+            (catalog.error?.message || 'Set a default model with /provider add.') + '\n');
         }
-        console.log(`${c.cyan}╰────────────────────────────────────────────────────────────────────────────╯${c.reset}\n`);
         continue;
       }
-      
-      if (subCmd === 'add') {
-        const name = args[1];
-        const baseUrl = args[2];
-        const apiKey = args[3];
-        if (!name || !baseUrl || !apiKey) {
-          console.log(`\n  ${c.dim}Usage: /provider add <name> <base_url> <api_key>${c.reset}\n`);
-          console.log(`  ${c.dim}Example: /provider add openai https://api.openai.com/v1 sk-xxx${c.reset}\n`);
-          continue;
-        }
-        providers.providers[name] = {
-          base_url: baseUrl,
-          api_key: apiKey,
-          models: providers.providers[name]?.models || []
-        };
-        fs.writeFileSync(configPath, JSON.stringify(providers, null, 2), 'utf8');
-        console.log(`\n  ${c.green}✔ Provider "${name}" added.${c.reset}\n`);
-        continue;
+
+      const modelIndex = await promptSelect({
+        title: provider.label.toUpperCase() + ' MODELS',
+        icon: '◈',
+        options: catalog.models.map(model => ({
+          label: model.model,
+          desc: model.id,
+          active: model.id === client.sessionData.model
+        })),
+        footer: '↑↓ pilih • [Enter] gunakan model • [Esc] batal'
+      });
+      if (modelIndex >= 0) {
+        const model = catalog.models[modelIndex];
+        await client.updateSessionSettings({ model: model.id });
+        console.log('\n  Provider/model aktif: ' + c.cyan + model.id + c.reset + '\n');
       }
-      
-      if (subCmd === 'remove') {
-        const name = args[1];
-        if (!name || !providers.providers[name]) {
-          console.log(`\n  ${c.red}✖ Provider "${name}" not found.${c.reset}\n`);
-          continue;
-        }
-        delete providers.providers[name];
-        fs.writeFileSync(configPath, JSON.stringify(providers, null, 2), 'utf8');
-        console.log(`\n  ${c.green}✔ Provider "${name}" removed.${c.reset}\n`);
-        continue;
-      }
-      
-      console.log(`\n  ${c.dim}Usage: /provider list|add|remove [args]${c.reset}\n`);
       continue;
     }
 
