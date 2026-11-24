@@ -1,9 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { render, Box, Text, Spacer, Newline, useInput, useApp, useStdin, useWindowSize } from 'ink';
 import readline from 'node:readline';
+import fs from 'node:fs';
+import path from 'node:path';
 import { createNexusServer } from './server.js';
 import { loadEnv } from './core/config.js';
-import { SessionSnapshotManager } from './core/snapshot.js';
+import { SessionSnapshotManager, isGitRepo } from './core/snapshot.js';
+import { exportSessionToHTML } from './core/export.js';
+import { getModelConfig } from './core/context.js';
+import { isDockerAvailable } from './core/sandbox.js';
+import { defaultRegistry } from './tools/index.js';
 
 const createElement = React.createElement;
 
@@ -11,6 +17,29 @@ const createElement = React.createElement;
 loadEnv();
 
 const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+
+const ALL_COMMANDS = [
+  { cmd: '/help', desc: 'Buka menu panduan & daftar perintah lengkap', cat: 'Bantuan' },
+  { cmd: '/plan', desc: 'Beralih ke mode read-only (blokir mutasi file)', cat: 'Mode' },
+  { cmd: '/build', desc: 'Beralih ke mode build (eksekusi penuh: write, edit, bash)', cat: 'Mode' },
+  { cmd: '/model', desc: 'Lihat atau ganti model LLM aktif (/model <nama>)', cat: 'Model' },
+  { cmd: '/cost', desc: 'Laporan rincian token usage dan estimasi biaya USD', cat: 'Model' },
+  { cmd: '/compact', desc: 'Pangkas riwayat percakapan untuk menghemat token', cat: 'Model' },
+  { cmd: '/diff', desc: 'Lihat git diff perubahan workspace saat ini', cat: 'Git' },
+  { cmd: '/undo', desc: 'Kembalikan workspace ke checkpoint sebelumnya', cat: 'Git' },
+  { cmd: '/redo', desc: 'Majukan workspace ke checkpoint berikutnya', cat: 'Git' },
+  { cmd: '/checkpoints', desc: 'Lihat daftar seluruh checkpoint git sesi ini', cat: 'Git' },
+  { cmd: '/checkpoint', desc: 'Buat checkpoint git manual (/checkpoint [nama])', cat: 'Git' },
+  { cmd: '/export', desc: 'Ekspor sesi ke file HTML mandiri (/export [nama])', cat: 'Sesi' },
+  { cmd: '/sessions', desc: 'Lihat daftar seluruh sesi yang tersimpan', cat: 'Sesi' },
+  { cmd: '/resume', desc: 'Lanjutkan sesi tersimpan (/resume <id>)', cat: 'Sesi' },
+  { cmd: '/new', desc: 'Mulai sesi percakapan baru yang bersih', cat: 'Sesi' },
+  { cmd: '/doctor', desc: 'Cek kesehatan environment (Node, Git, Docker, Tools)', cat: 'Sistem' },
+  { cmd: '/init', desc: 'Inisialisasi folder .agent/ dan agent.config.json', cat: 'Sistem' },
+  { cmd: '/abort', desc: 'Hentikan proses agen aktif yang sedang berjalan', cat: 'Sistem' },
+  { cmd: '/clear', desc: 'Bersihkan riwayat percakapan di layar', cat: 'Tampilan' },
+  { cmd: 'exit', desc: 'Keluar dari aplikasi', cat: 'Sistem' }
+];
 
 const MASCOT_FRAMES = {
   idle: [
@@ -129,6 +158,15 @@ class TUIClient {
       headers: this.getHeaders()
     });
     return res.json();
+  }
+
+  async compactSession() {
+    const res = await fetch(`${this.serverUrl}/session/${this.sessionId}/compact`, {
+      method: 'POST',
+      headers: this.getHeaders()
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.json();
   }
 
   async answerPermission(permId, allow) {
@@ -284,7 +322,7 @@ function ElainaMascotHero({ session, agentStatus, tokenUsage, frameIndex, elapse
       ),
       createElement(Text, { color: 'white' }, `"${dialogue}"`),
       createElement(Text, { color: 'gray', dimColor: true },
-        `Session: ${shortId} │ /help untuk panduan`
+        `Session: ${shortId} │ Ketik / untuk command palette │ Tab autocomplete`
       )
     )
   );
@@ -320,7 +358,7 @@ function MessagesArea({ messages, activeStream, maxRows }) {
   },
     recentMessages.length === 0 && !activeStream
       ? createElement(Box, { paddingY: 0 },
-          createElement(Text, { color: 'gray', dimColor: true }, 'Belum ada percakapan. Tulis instruksi coding atau perintah slash di bawah.')
+          createElement(Text, { color: 'gray', dimColor: true }, 'Belum ada percakapan. Tulis instruksi coding atau ketik / untuk command palette.')
         )
       : null,
 
@@ -370,6 +408,37 @@ function MessagesArea({ messages, activeStream, maxRows }) {
   );
 }
 
+// ─── Interactive Command Autocomplete Palette ─────────────────────────────────
+
+function CommandPalette({ commands, selectedIndex }) {
+  if (!commands || commands.length === 0) return null;
+  const displayList = commands.slice(0, 6);
+
+  return createElement(Box, {
+    flexDirection: 'column',
+    borderStyle: 'round',
+    borderColor: 'magenta',
+    paddingX: 1,
+    marginY: 0
+  },
+    createElement(Box, { flexDirection: 'row', marginBottom: 0 },
+      createElement(Text, { color: 'magenta', bold: true }, '✦ COMMAND PALETTE '),
+      createElement(Text, { color: 'gray' }, '(Tekan [Tab] untuk auto-complete, [↑/↓] navigasi, [Enter] jalankan):')
+    ),
+    ...displayList.map((c, idx) => {
+      const isSelected = idx === selectedIndex;
+      return createElement(Box, { key: c.cmd, flexDirection: 'row' },
+        createElement(Text, {
+          color: isSelected ? 'cyan' : 'white',
+          bold: isSelected,
+          backgroundColor: isSelected ? 'gray' : undefined
+        }, `${isSelected ? '❯ ' : '  '}${c.cmd.padEnd(14, ' ')}`),
+        createElement(Text, { color: isSelected ? 'white' : 'gray' }, ` ${c.desc}`)
+      );
+    })
+  );
+}
+
 function InputBox({ input, mode, isBusy }) {
   return createElement(Box, {
     borderStyle: 'round',
@@ -379,7 +448,7 @@ function InputBox({ input, mode, isBusy }) {
   },
     createElement(Text, { color: 'cyan', bold: true }, `[${mode.toUpperCase()}] ❯ `),
     createElement(Text, { color: isBusy ? 'gray' : 'white' },
-      input || (isBusy ? 'Elaina sedang memproses... tunggu sejenak' : 'Ketik instruksi coding atau perintah slash (/help)...')
+      input || (isBusy ? 'Elaina sedang memproses... tunggu sejenak' : 'Ketik instruksi coding atau ketik / untuk command palette...')
     ),
     !isBusy ? createElement(Text, { color: 'cyan' }, '█') : null
   );
@@ -388,7 +457,7 @@ function InputBox({ input, mode, isBusy }) {
 function FooterBar() {
   return createElement(Box, { paddingX: 1, marginTop: 0 },
     createElement(Text, { color: 'gray', dimColor: true },
-      'Perintah cepat: /plan  /build  /new  /undo  /clear  /abort  /help  exit'
+      'Perintah cepat: /help  /plan  /build  /diff  /doctor  /cost  /undo  /redo  /compact  exit'
     )
   );
 }
@@ -403,6 +472,7 @@ function NexusTUIApp({ client, snapshotManager }) {
   const [messages, setMessages] = useState([]);
   const [activeStream, setActiveStream] = useState('');
   const [input, setInput] = useState('');
+  const [selectedCmdIndex, setSelectedCmdIndex] = useState(0);
   const [tokenUsage, setTokenUsage] = useState(0);
   const [pendingPermission, setPendingPermission] = useState(null);
   const [agentStatus, setAgentStatus] = useState({ state: 'idle', text: '' });
@@ -411,8 +481,19 @@ function NexusTUIApp({ client, snapshotManager }) {
 
   const isBusy = agentStatus.state === 'thinking' || agentStatus.state === 'tool' || agentStatus.state === 'permission';
 
+  // Filter command suggestions based on current input
+  const isSlashActive = input.startsWith('/');
+  const filteredCommands = isSlashActive
+    ? ALL_COMMANDS.filter(c => c.cmd.toLowerCase().startsWith(input.trim().toLowerCase().split(' ')[0]))
+    : [];
+
+  // Reset selected command index if list shrinks
+  useEffect(() => {
+    setSelectedCmdIndex(0);
+  }, [input]);
+
   // Dynamic max message rows based on terminal height
-  const maxMessageRows = Math.max(2, Math.min(8, (rows || 24) - 15));
+  const maxMessageRows = Math.max(2, Math.min(8, (rows || 24) - (isSlashActive ? 18 : 14)));
 
   // Mascot & Animation effect
   useEffect(() => {
@@ -432,18 +513,46 @@ function NexusTUIApp({ client, snapshotManager }) {
     }
   }, [agentStatus.state]);
 
-  // Execute User Turn
+  // Execute User Turn or Slash Command
   const handleExecute = async (userPrompt) => {
     if (isBusy) return;
     const trimmed = userPrompt.trim();
     if (!trimmed) return;
 
-    // Slash command handling
-    if (trimmed === '/help') {
+    // ─── Slash command handling ───────────────────────────────────────────
+
+    // /help or just /
+    if (trimmed === '/help' || trimmed === '/') {
+      const helpText = `DAFTAR PERINTAH LENGKAP:
+• Mode:
+  /plan           - Beralih ke mode read-only (blokir mutasi file)
+  /build          - Beralih ke mode build (eksekusi penuh: write, bash)
+• Model & Konteks:
+  /model [nama]   - Lihat atau ganti model LLM aktif
+  /cost, /usage   - Laporan konsumsi token dan estimasi biaya USD
+  /compact        - Pangkas riwayat percakapan untuk hemat token
+• Git & Checkpoint:
+  /diff           - Lihat git diff perubahan workspace saat ini
+  /undo           - Kembalikan workspace ke checkpoint sebelumnya
+  /redo           - Majukan workspace ke checkpoint berikutnya
+  /checkpoints    - Lihat daftar seluruh checkpoint git sesi ini
+  /checkpoint [l] - Buat checkpoint git manual bernama
+• Sesi:
+  /export [path]  - Ekspor percakapan ke file HTML mandiri
+  /sessions       - Lihat daftar seluruh sesi yang tersimpan
+  /resume <id>    - Lanjutkan sesi tersimpan
+  /new            - Mulai sesi baru yang bersih
+• Sistem:
+  /doctor         - Cek kesehatan environment (Node, Git, Docker, Tools)
+  /init           - Inisialisasi folder .agent/ dan agent.config.json
+  /abort          - Batalkan proses aktif yang sedang berjalan
+  /clear          - Bersihkan riwayat chat di layar
+  exit / quit     - Keluar dari aplikasi`;
+
       setMessages(prev => [
         ...prev,
         { role: 'user', content: trimmed },
-        { role: 'assistant', content: 'Perintah yang tersedia:\n• /plan: Berpindah ke mode PLAN (read-only, blokir mutasi)\n• /build: Berpindah ke mode BUILD (eksekusi penuh & verifikasi)\n• /new: Mulai sesi kerja baru\n• /undo: Revert git snapshot ke awal sesi\n• /clear: Bersihkan riwayat chat tampilan\n• /abort: Batalkan proses aktif yang sedang berjalan\n• exit / quit: Keluar dari TUI' }
+        { role: 'assistant', content: helpText }
       ]);
       return;
     }
@@ -470,6 +579,241 @@ function NexusTUIApp({ client, snapshotManager }) {
       return;
     }
 
+    if (trimmed.startsWith('/model')) {
+      const newModel = trimmed.slice(6).trim();
+      if (!newModel) {
+        setMessages(prev => [
+          ...prev,
+          { role: 'user', content: trimmed },
+          { role: 'assistant', content: `Model aktif: ${session.model || 'default'}. Ketik /model <nama> untuk mengganti.` }
+        ]);
+      } else {
+        setSession(s => ({ ...s, model: newModel }));
+        client.sessionData.model = newModel;
+        setMessages(prev => [
+          ...prev,
+          { role: 'user', content: trimmed },
+          { role: 'assistant', content: `🎯 Model berhasil diubah ke: ${newModel}` }
+        ]);
+      }
+      return;
+    }
+
+    if (trimmed === '/cost' || trimmed === '/usage') {
+      try {
+        const loaded = await client.loadSession(session.id);
+        const config = getModelConfig(session.model);
+        const u = loaded.usage || { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
+        const inCost = ((u.prompt_tokens / 1_000_000) * (config.inputPrice || 0)).toFixed(4);
+        const outCost = ((u.completion_tokens / 1_000_000) * (config.outputPrice || 0)).toFixed(4);
+        const totalCost = (parseFloat(inCost) + parseFloat(outCost)).toFixed(4);
+
+        const report = `📊 LAPORAN KONSUMSI TOKEN & BIAYA:
+Model: ${config.name || session.model}
+• Prompt Tokens: ${(u.prompt_tokens || 0).toLocaleString()} (rate: $${config.inputPrice || 0}/1M)
+• Comp Tokens:   ${(u.completion_tokens || 0).toLocaleString()} (rate: $${config.outputPrice || 0}/1M)
+• Total Tokens:  ${(u.total_tokens || 0).toLocaleString()}
+• Estimasi Biaya: $${totalCost} USD`;
+
+        setMessages(prev => [
+          ...prev,
+          { role: 'user', content: trimmed },
+          { role: 'assistant', content: report }
+        ]);
+      } catch (err) {
+        setMessages(prev => [...prev, { role: 'user', content: trimmed }, { role: 'assistant', content: `Gagal memuat cost: ${err.message}` }]);
+      }
+      return;
+    }
+
+    if (trimmed === '/compact') {
+      try {
+        setAgentStatus({ state: 'thinking', text: 'Memangkas konteks percakapan...' });
+        const res = await client.compactSession();
+        if (res.compacted) {
+          setMessages(prev => [
+            ...prev,
+            { role: 'user', content: trimmed },
+            { role: 'assistant', content: `✔ Konteks berhasil dikompak: ${res.beforeTokens.toLocaleString()} -> ${res.afterTokens.toLocaleString()} tokens (menghemat ${res.savedTokens.toLocaleString()} tokens).` }
+          ]);
+        } else {
+          setMessages(prev => [
+            ...prev,
+            { role: 'user', content: trimmed },
+            { role: 'assistant', content: res.message || 'Riwayat konteks masih pendek dan sudah padat.' }
+          ]);
+        }
+      } catch (err) {
+        setMessages(prev => [...prev, { role: 'user', content: trimmed }, { role: 'assistant', content: `Gagal memangkas konteks: ${err.message}` }]);
+      } finally {
+        setAgentStatus({ state: 'idle', text: '' });
+      }
+      return;
+    }
+
+    if (trimmed === '/diff') {
+      const diffRes = await snapshotManager.getDiff();
+      if (!diffRes.success) {
+        setMessages(prev => [...prev, { role: 'user', content: trimmed }, { role: 'assistant', content: `⚠️ ${diffRes.message}` }]);
+      } else if (!diffRes.diff && !diffRes.status) {
+        setMessages(prev => [...prev, { role: 'user', content: trimmed }, { role: 'assistant', content: '✔ Working directory bersih. Tidak ada perubahan yang belum di-commit.' }]);
+      } else {
+        const header = `WORKSPACE DIFF (vs ${diffRes.compareRef}):\nStatus: ${diffRes.status || 'modified'}\n`;
+        const diffBody = diffRes.diff ? diffRes.diff.slice(0, 1000) : '';
+        setMessages(prev => [
+          ...prev,
+          { role: 'user', content: trimmed },
+          { role: 'assistant', content: header + (diffBody.length === 1000 ? diffBody + '\n... (dipangkas)' : diffBody) }
+        ]);
+      }
+      return;
+    }
+
+    if (trimmed === '/undo') {
+      const res = await snapshotManager.undo();
+      setMessages(prev => [
+        ...prev,
+        { role: 'user', content: trimmed },
+        { role: 'assistant', content: res.success ? `↩️ [Undo] ${res.message}` : `⚠️ [Undo] ${res.message}` }
+      ]);
+      return;
+    }
+
+    if (trimmed === '/redo') {
+      const res = await snapshotManager.redo();
+      setMessages(prev => [
+        ...prev,
+        { role: 'user', content: trimmed },
+        { role: 'assistant', content: res.success ? `↪️ [Redo] ${res.message}` : `⚠️ [Redo] ${res.message}` }
+      ]);
+      return;
+    }
+
+    if (trimmed === '/checkpoints') {
+      const cps = snapshotManager.listCheckpoints();
+      if (cps.length === 0) {
+        setMessages(prev => [...prev, { role: 'user', content: trimmed }, { role: 'assistant', content: 'Belum ada checkpoint git dalam sesi ini.' }]);
+      } else {
+        const table = cps.map(cp => `[${cp.index}] ${cp.ref} "${cp.label}" ${new Date(cp.timestamp).toLocaleTimeString()}${cp.current ? ' ◀ current' : ''}`).join('\n');
+        setMessages(prev => [
+          ...prev,
+          { role: 'user', content: trimmed },
+          { role: 'assistant', content: `DAFTAR CHECKPOINT GIT:\n${table}` }
+        ]);
+      }
+      return;
+    }
+
+    if (trimmed.startsWith('/checkpoint')) {
+      const label = trimmed.slice(11).trim() || undefined;
+      const res = await snapshotManager.createCheckpoint(label);
+      setMessages(prev => [
+        ...prev,
+        { role: 'user', content: trimmed },
+        { role: 'assistant', content: res.success ? `📌 Checkpoint dibuat: [${res.index}] ${res.ref} "${res.label}"` : `⚠️ ${res.message}` }
+      ]);
+      return;
+    }
+
+    if (trimmed.startsWith('/export')) {
+      const outputArg = trimmed.slice(7).trim();
+      const outputPath = outputArg || `nexus-session-${session.id}.html`;
+      try {
+        const sessionData = await client.loadSession(session.id);
+        exportSessionToHTML(sessionData, outputPath);
+        setMessages(prev => [
+          ...prev,
+          { role: 'user', content: trimmed },
+          { role: 'assistant', content: `📄 Sesi berhasil diekspor ke HTML: ${path.resolve(outputPath)}` }
+        ]);
+      } catch (err) {
+        setMessages(prev => [...prev, { role: 'user', content: trimmed }, { role: 'assistant', content: `Gagal mengekspor sesi: ${err.message}` }]);
+      }
+      return;
+    }
+
+    if (trimmed === '/doctor') {
+      const isGit = await isGitRepo(process.cwd());
+      const hasDocker = await isDockerAvailable();
+      const hasKey = Boolean(process.env.API_KEY || process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY || process.env.GEMINI_API_KEY);
+      let subagents = 0;
+      try {
+        const d = path.resolve(process.cwd(), '.agent', 'agents');
+        if (fs.existsSync(d)) subagents = fs.readdirSync(d).filter(f => f.endsWith('.md')).length;
+      } catch {}
+
+      const report = `🏥 HASIL DIAGNOSTIK NEXUS:
+• Node.js:        ${process.version} (>=20.0.0 required)
+• Git Repo:       ${isGit ? 'Terdeteksi' : 'Bukan repo git'}
+• Docker Sandbox: ${hasDocker ? 'Aktif' : 'Tidak terdeteksi (fallback ke exec lokal)'}
+• Model Aktif:    ${session.model || 'default'}
+• API Key:        ${hasKey ? 'Terkonfigurasi di environment' : 'Belum diatur di .env'}
+• Registered Tools: ${defaultRegistry.list().length} tools
+• Custom Agents:  ${subagents} subagent`;
+
+      setMessages(prev => [
+        ...prev,
+        { role: 'user', content: trimmed },
+        { role: 'assistant', content: report }
+      ]);
+      return;
+    }
+
+    if (trimmed === '/init') {
+      try {
+        const dirs = [
+          path.resolve(process.cwd(), '.agent', 'agents'),
+          path.resolve(process.cwd(), '.agent', 'commands'),
+          path.resolve(process.cwd(), '.agent', 'plugins'),
+          path.resolve(process.cwd(), '.agent', 'sessions')
+        ];
+        for (const dir of dirs) fs.mkdirSync(dir, { recursive: true });
+        setMessages(prev => [
+          ...prev,
+          { role: 'user', content: trimmed },
+          { role: 'assistant', content: '✔ Workspace berhasil diinisialisasi untuk Nexus Agent (.agent/{agents, commands, plugins, sessions}).' }
+        ]);
+      } catch (err) {
+        setMessages(prev => [...prev, { role: 'user', content: trimmed }, { role: 'assistant', content: `Gagal inisialisasi: ${err.message}` }]);
+      }
+      return;
+    }
+
+    if (trimmed === '/sessions') {
+      try {
+        const list = await client.listSessions();
+        const formatted = list.map(s => `- ${s.id}${s.id === session.id ? ' (active)' : ''} | [${s.mode}] ${s.model || 'default'} | ${s.messageCount} msgs | ${(s.tokens || 0).toLocaleString()} tok`).join('\n');
+        setMessages(prev => [
+          ...prev,
+          { role: 'user', content: trimmed },
+          { role: 'assistant', content: `SESI TERSIMPAN:\n${formatted || '(belum ada sesi lain)'}` }
+        ]);
+      } catch (err) {
+        setMessages(prev => [...prev, { role: 'user', content: trimmed }, { role: 'assistant', content: `Gagal memuat sesi: ${err.message}` }]);
+      }
+      return;
+    }
+
+    if (trimmed.startsWith('/resume')) {
+      const targetId = trimmed.slice(7).trim();
+      if (!targetId) {
+        setMessages(prev => [...prev, { role: 'user', content: trimmed }, { role: 'assistant', content: 'Format: /resume <session_id>' }]);
+      } else {
+        try {
+          const resumed = await client.loadSession(targetId);
+          setSession(resumed);
+          setMessages(prev => [
+            ...prev,
+            { role: 'user', content: trimmed },
+            { role: 'assistant', content: `📂 Sesi berhasil dialihkan ke: ${resumed.id} (${resumed.messages?.length || 0} pesan).` }
+          ]);
+        } catch (err) {
+          setMessages(prev => [...prev, { role: 'user', content: trimmed }, { role: 'assistant', content: `Gagal resume: ${err.message}` }]);
+        }
+      }
+      return;
+    }
+
     if (trimmed === '/new') {
       try {
         const fresh = await client.createSession({ mode: 'build', model: session.model });
@@ -491,16 +835,6 @@ function NexusTUIApp({ client, snapshotManager }) {
       return;
     }
 
-    if (trimmed === '/undo') {
-      const res = await snapshotManager.restore();
-      setMessages(prev => [
-        ...prev,
-        { role: 'user', content: trimmed },
-        { role: 'assistant', content: `↩️ [Undo] ${res.message}` }
-      ]);
-      return;
-    }
-
     if (trimmed === '/abort') {
       await client.abortSession();
       setAgentStatus({ state: 'done', text: 'Proses agen berhasil dibatalkan.' });
@@ -510,7 +844,8 @@ function NexusTUIApp({ client, snapshotManager }) {
       return;
     }
 
-    // Add user message to UI
+    // ─── LLM Turn Execution ───────────────────────────────────────────────
+
     setMessages(prev => [...prev, { role: 'user', content: trimmed }]);
     setActiveStream('');
     setElapsedSeconds(0);
@@ -589,7 +924,7 @@ function NexusTUIApp({ client, snapshotManager }) {
     }
   };
 
-  // Keyboard input via Ink useInput when raw mode TTY is available
+  // Keyboard input via Ink useInput
   useInput((inputChar, key) => {
     // If pending permission modal is active
     if (pendingPermission) {
@@ -603,6 +938,25 @@ function NexusTUIApp({ client, snapshotManager }) {
         setAgentStatus({ state: 'thinking', text: `Izin ditolak untuk ${pendingPermission.tool}` });
       }
       return;
+    }
+
+    // Interactive command palette navigation when typing /
+    if (isSlashActive && filteredCommands.length > 0) {
+      if (key.upArrow) {
+        setSelectedCmdIndex(prev => (prev > 0 ? prev - 1 : filteredCommands.length - 1));
+        return;
+      }
+      if (key.downArrow) {
+        setSelectedCmdIndex(prev => (prev < filteredCommands.length - 1 ? prev + 1 : 0));
+        return;
+      }
+      if (key.tab) {
+        const chosen = filteredCommands[selectedCmdIndex];
+        if (chosen) {
+          setInput(chosen.cmd + ' ');
+        }
+        return;
+      }
     }
 
     if (key.return) {
@@ -651,6 +1005,9 @@ function NexusTUIApp({ client, snapshotManager }) {
     createElement(ElainaMascotHero, { session, agentStatus, tokenUsage, frameIndex: spinnerFrame, elapsedSeconds }),
     createElement(PermissionModal, { request: pendingPermission }),
     createElement(MessagesArea, { messages, activeStream, maxRows: maxMessageRows }),
+    isSlashActive && filteredCommands.length > 0
+      ? createElement(CommandPalette, { commands: filteredCommands, selectedIndex: selectedCmdIndex })
+      : null,
     createElement(InputBox, { input, mode: session?.mode || 'build', isBusy }),
     createElement(FooterBar)
   );
@@ -665,16 +1022,14 @@ async function startTUI() {
   const snapshotManager = new SessionSnapshotManager(process.cwd());
 
   if (!serverUrl) {
-    // Check if port 4141 is already running a Nexus server
     try {
-      const ping = await fetch('http://127.0.0.1:4141/session', {
-        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
-      });
-      if (ping.ok || ping.status === 401) {
+      const checkRes = await fetch('http://127.0.0.1:4141/session');
+      if (checkRes.ok) {
         serverUrl = 'http://127.0.0.1:4141';
       }
-    } catch {
-      // Not running, spawn in-process server
+    } catch {}
+
+    if (!serverUrl) {
       localServer = createNexusServer({
         port: 0,
         host: '127.0.0.1',
@@ -688,7 +1043,10 @@ async function startTUI() {
 
   const client = new TUIClient({ serverUrl, token });
   const initialModel = process.env.MODEL || 'Elaina-Free';
-  await client.createSession({ mode: 'build', model: initialModel });
+  const initialMode = 'build';
+
+  await client.createSession({ mode: initialMode, model: initialModel });
+  await snapshotManager.captureFirstSnapshot();
 
   const { waitUntilExit } = render(
     createElement(NexusTUIApp, { client, snapshotManager })
@@ -697,8 +1055,9 @@ async function startTUI() {
   await waitUntilExit();
 
   if (localServer) {
-    await localServer.close();
+    try { await localServer.close(); } catch {}
   }
+  process.exit(0);
 }
 
 startTUI().catch(err => {
