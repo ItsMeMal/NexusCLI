@@ -6,7 +6,7 @@ export class Session {
   constructor({
     id,
     mode = 'build',
-    model = 'Elaina-Free',
+    model = '',
     createdAt = Date.now(),
     updatedAt = Date.now(),
     usage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },

@@ -30,9 +30,9 @@ export function loadEnv(workingDir = process.cwd()) {
 export function getConfig(workingDir = process.cwd()) {
   loadEnv(workingDir);
   return {
-    baseUrl: process.env.BASE_URL || process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1',
+    baseUrl: process.env.BASE_URL || process.env.OPENAI_BASE_URL || '',
     apiKey: process.env.API_KEY || process.env.OPENAI_API_KEY || '',
-    model: process.env.MODEL || process.env.OPENAI_MODEL || 'Elaina-Free',
+    model: process.env.MODEL || process.env.OPENAI_MODEL || '',
     serverHost: process.env.NEXUS_HOST || '127.0.0.1',
     serverPort: Number(process.env.NEXUS_PORT) || 4141,
     serverToken: process.env.NEXUS_SERVER_TOKEN || null

@@ -109,7 +109,7 @@ export function createNexusServer(options = {}) {
       if (req.method === 'POST' && pathname === '/session') {
         const body = await readJsonBody(req);
         const mode = body.mode || 'build';
-        const model = body.model || process.env.MODEL || 'Elaina-Free';
+        const model = body.model || process.env.MODEL || '';
 
         const session = sessionManager.createSession({
           mode,

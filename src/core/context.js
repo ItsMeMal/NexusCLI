@@ -6,7 +6,6 @@ const MESSAGES_TO_PRESERVE = 6; // Keep last N messages + system prompt
 
 // Preset model yang diketahui: pricing & kapasitas (harga per 1M input/output token USD)
 export const MODEL_PRESETS = {
-  'elaina-free': { maxTokens: 8192, inputPrice: 0, outputPrice: 0, name: 'Elaina-Free' },
   'gpt-4o': { maxTokens: 128000, inputPrice: 5.00, outputPrice: 15.00, name: 'GPT-4o' },
   'gpt-4o-mini': { maxTokens: 128000, inputPrice: 0.150, outputPrice: 0.600, name: 'GPT-4o-mini' },
   'gpt-4': { maxTokens: 8192, inputPrice: 30.00, outputPrice: 60.00, name: 'GPT-4' },
