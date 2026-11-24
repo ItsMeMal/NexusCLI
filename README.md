@@ -61,6 +61,7 @@ Extend the workflow with:
 - **Custom agents** — Markdown definitions in `.agent/agents/`.
 - **MCP servers** — stdio, Streamable HTTP, and SSE transports configured in `.agent/mcp.json`.
 - **Plugins** — JavaScript or ESM modules in `.agent/plugins/`, with tool registration and lifecycle hooks.
+- **Built-in No AI Slop skill** — keeps implementation and interface work focused, specific, and free from generic template patterns.
 - **Custom slash commands** — Markdown command templates in `.agent/commands/`.
 
 ### Context and session management
@@ -76,7 +77,9 @@ Extend the workflow with:
 - Configurable `allow`, `ask`, and `deny` tool permissions.
 - Optional Docker-backed workspace sandboxing when Docker is available.
 - Secret redaction for sensitive values in output and logs.
-- Prompt-injection defenses that treat retrieved external content as untrusted data.
+- Prompt-injection and jailbreak defenses: project files, search results, subagent summaries, plugin/MCP responses, and retrieved pages are treated as untrusted data.
+- Shell command guardrails: command chaining, substitutions, pipes, and redirections require explicit approval; destructive system commands are denied by default.
+- Workspace path checks resolve existing symlink ancestors to prevent reads/writes through paths that escape the workspace.
 - Tool execution audit records in `.agent/audit.log`.
 - Git snapshots for reviewing and recovering workspace changes.
 
@@ -379,6 +382,7 @@ Type `/` in the interactive prompt to open the searchable command palette. Use t
 | `/new` | Start a new session |
 | `/export [path]` | Export the current session to standalone HTML |
 | `/doctor` | Run environment and workspace diagnostics |
+| `/update` | Install the latest source from the official GitHub `main` branch |
 | `/init` | Create starter `.agent/` configuration |
 | `/abort` | Stop the current agent task |
 | `/clear` | Clear the terminal |
@@ -413,6 +417,12 @@ Available options include:
 | `--debug` | Enable debug output |
 
 The JSON result includes session information, the selected model and mode, the response, tool calls, error status, exit code, and token usage.
+
+## Updating NexusCode
+
+In the interactive CLI, run `/update` and confirm the update. NexusCode installs the latest source from `github:ItsMeMal/NexusCode#main` through npm. Restart the CLI after installation.
+
+The updater follows the repository's `main` branch and does not change the package's declared version. The current development line remains **0.1.2**; the next package version is intentionally reserved for a later release.
 
 A GitHub Actions example is available in [`.github/workflows/agent-review.yml`](.github/workflows/agent-review.yml).
 
