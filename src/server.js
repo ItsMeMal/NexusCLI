@@ -1,7 +1,8 @@
 import http from 'node:http';
 import path from 'node:path';
 import { runAgentLoop } from './core/loop.js';
-import { defaultRegistry } from './tools/index.js';
+import { createDefaultRegistry } from './tools/index.js';
+import { ExtensionManager } from './core/extensions.js';
 import { buildSystemPrompt } from './core/prompt.js';
 import { SessionManager } from './core/session.js';
 import { SessionSnapshotManager } from './core/snapshot.js';
@@ -19,6 +20,16 @@ export function createNexusServer(options = {}) {
 
   const sessionManager = new SessionManager(workingDir);
   const snapshotManager = new SessionSnapshotManager(workingDir);
+  const registry = options.registry || createDefaultRegistry();
+  const extensionManager = options.extensionManager || new ExtensionManager(workingDir);
+  let extensionStatus = null;
+  let extensionInitPromise = null;
+
+  async function initializeExtensions() {
+    if (!extensionInitPromise) extensionInitPromise = extensionManager.initialize(registry);
+    extensionStatus = await extensionInitPromise;
+    return extensionStatus;
+  }
 
   // SSE client connections by sessionId: Map<sessionId, Set<res>>
   const sseClients = new Map();
@@ -248,13 +259,15 @@ export function createNexusServer(options = {}) {
         });
 
         // Run agent loop asynchronously, broadcasting events to SSE
-        (async () => {
+        const runPromise = (async () => {
           try {
             await runAgentLoop({
               messages: session.messages,
-              registry: defaultRegistry,
+              registry,
+              chatFn: options.chatFn,
               ctx: {
                 cwd: workingDir,
+                pluginManager: extensionManager.plugins,
                 mode: session.mode,
                 session,
                 sessionManager,
@@ -294,6 +307,8 @@ export function createNexusServer(options = {}) {
             await sessionManager.saveSession(session);
           }
         })();
+        const activeRun = activeRuns.get(sessionId);
+        if (activeRun) activeRun.promise = runPromise;
 
         return;
       }
@@ -387,13 +402,17 @@ export function createNexusServer(options = {}) {
     host,
     port,
     token,
+    registry,
+    extensionManager,
+    getExtensionStatus: () => extensionStatus,
     async start() {
+      const extensions = await initializeExtensions();
       return new Promise((resolve, reject) => {
         server.listen(port, host, () => {
           const addr = server.address();
           const actualPort = typeof addr === 'object' && addr ? addr.port : port;
           const url = `http://${host}:${actualPort}`;
-          resolve({ server, url, port: actualPort });
+          resolve({ server, url, port: actualPort, extensions });
         });
         server.on('error', reject);
       });
@@ -407,9 +426,20 @@ export function createNexusServer(options = {}) {
       }
       sseClients.clear();
 
-      return new Promise((resolve) => {
+      const running = Array.from(activeRuns.values());
+      for (const active of running) active.abortController.abort();
+      await Promise.allSettled(running.map(active => active.promise).filter(Boolean));
+
+      await new Promise((resolve) => {
+        if (!server.listening) return resolve();
         server.close(() => resolve());
       });
+
+      if (extensionInitPromise) {
+        await extensionManager.shutdown();
+        extensionInitPromise = null;
+        extensionStatus = null;
+      }
     }
   };
 }
