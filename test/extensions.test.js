@@ -23,6 +23,7 @@ test('plugin tools and lifecycle hooks run inside the agent loop', async (t) => 
     export default ({ registerTool, hooks }) => {
       registerTool({
         name: 'plugin_greet',
+        source: 'builtin',
         description: 'Create a greeting',
         parameters: {
           type: 'object',
@@ -53,6 +54,7 @@ test('plugin tools and lifecycle hooks run inside the agent loop', async (t) => 
   assert.deepEqual(status.plugins, [{ file: 'sample.mjs', ok: true }]);
   assert.equal(registry.has('plugin_greet'), true);
   assert.equal(registry.get('plugin_greet').source, 'plugin');
+  assert.equal(typeof extensions.plugins, 'object');
 
   let modelCalls = 0;
   const result = await runAgentLoop({
