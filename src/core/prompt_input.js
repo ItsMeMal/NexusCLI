@@ -101,59 +101,134 @@ export function filterPickerOptions(options, query = '') {
     .sort((a, b) => b.score - a.score || a.index - b.index);
 }
 
-export async function promptSelect({ title, icon = '', options: opts = [], footer, searchable = false, maxVisible = 10 }) {
-  const boxW = 74;
-  const foot = footer || '↑↓ pilih • [Enter] ok • [Esc] batal • ketik nomor';
-  const titleText = ' ' + (icon ? icon + ' ' : '') + c.bold + title + c.reset + ' ';
-  const titleFill = Math.max(1, boxW - 3 - stripAnsi(titleText).length);
-  const topRow = c.cyan + '╭─' + c.reset + titleText + c.dim + '─'.repeat(titleFill) + c.reset + c.cyan + '╮' + c.reset;
-  const bottomRow = c.cyan + '╰' + '─'.repeat(boxW - 2) + '╯' + c.reset;
+function displayWidth(value) {
+  return Array.from(stripAnsi(String(value ?? ''))).reduce((width, char) => {
+    const code = char.codePointAt(0);
+    return width + (
+      code >= 0x1100 && (
+        code <= 0x115f || code === 0x2329 || code === 0x232a ||
+        (code >= 0x2e80 && code <= 0xa4cf) ||
+        (code >= 0xac00 && code <= 0xd7a3) ||
+        (code >= 0xf900 && code <= 0xfaff) ||
+        (code >= 0xfe10 && code <= 0xfe19) ||
+        (code >= 0xfe30 && code <= 0xfe6f) ||
+        (code >= 0xff00 && code <= 0xff60) ||
+        (code >= 0xffe0 && code <= 0xffe6) ||
+        (code >= 0x1f300 && code <= 0x1faff)
+      ) ? 2 : 1
+    );
+  }, 0);
+}
 
+function clipPickerText(value, maxWidth) {
+  const text = String(value ?? '').replace(/[\r\n\t]+/g, ' ');
+  if (maxWidth <= 0) return '';
+  if (displayWidth(text) <= maxWidth) return text;
+  const result = [];
+  let width = 0;
+  for (const char of text) {
+    const charWidth = displayWidth(char);
+    if (width + charWidth > Math.max(0, maxWidth - 1)) break;
+    result.push(char);
+    width += charWidth;
+  }
+  return result.join('') + (maxWidth > 1 ? '…' : '');
+}
+
+function padPickerText(value, width) {
+  const text = String(value ?? '');
+  return text + ' '.repeat(Math.max(0, width - displayWidth(text)));
+}
+
+export function formatPickerOption(option, { index = 0, selected = false, width = 76 } = {}) {
+  const innerWidth = Math.max(12, width - 4);
+  const prefix = selected ? '›' : ' ';
+  const number = String(index + 1).padStart(2, ' ');
+  const status = String(option.status || (option.active ? 'ACTIVE' : option.connected ? 'CONNECTED' : '')).toUpperCase();
+  const statusWidth = Math.min(displayWidth(status), Math.max(0, Math.floor(innerWidth * 0.24)));
+  const fixedWidth = 1 + 1 + 2 + 1 + 2 + statusWidth;
+  const labelWidth = Math.max(8, Math.min(
+    displayWidth(option.label || ''),
+    Math.floor((innerWidth - fixedWidth) * 0.55)
+  ));
+  const descWidth = Math.max(0, innerWidth - fixedWidth - labelWidth - 2);
+  const label = clipPickerText(option.label || '', labelWidth);
+  const desc = clipPickerText(option.desc || '', descWidth);
+  const gap = ' '.repeat(Math.max(1, innerWidth - fixedWidth - displayWidth(label) - displayWidth(desc)));
+  const statusText = clipPickerText(status, statusWidth);
+  const statusColor = status.includes('ACTIVE') || status.includes('CONNECTED')
+    ? c.green
+    : status ? c.amber : c.reset;
+  const line =
+    (selected ? c.cyan + c.bold + prefix + c.reset : c.dim + prefix + c.reset) +
+    ' ' + c.muted + number + c.reset + ' ' +
+    (selected ? c.brightWhite + c.bold : c.white) + label + c.reset +
+    (desc ? '  ' + c.dim + desc + c.reset : '') +
+    gap +
+    (statusText ? statusColor + c.bold + statusText + c.reset : '');
+  return c.cyan + '│' + c.reset + ' ' + line + ' ' + c.cyan + '│' + c.reset;
+}
+
+export async function promptSelect({ title, icon = '', options: opts = [], footer, searchable = false, maxVisible = 10 }) {
   if (!opts.length) return -1;
 
-  const optionRow = (entry, selected) => {
-    const option = entry.option;
-    const active = option.active ? ' ' + c.green + c.bold + '● ACTIVE' + c.reset : '';
-    const connected = option.connected ? ' ' + c.green + '✓ connected' + c.reset : '';
-    const prefix = selected ? c.bgCyan + c.black + c.bold + ' ❯ ' + c.reset : '   ';
-    const number = c.magenta + c.bold + '[' + (entry.index + 1) + ']' + c.reset;
-    const label = c.bold + option.label + c.reset + active + connected;
-    const desc = option.desc ? '  ' + c.dim + option.desc + c.reset : '';
-    return c.cyan + '│' + c.reset + prefix + number + ' ' + label + desc;
-  };
+  const terminalColumns = Number(process.stdout.columns) || 80;
+  const boxW = Math.max(24, Math.min(100, terminalColumns - 1));
+  const innerWidth = boxW - 4;
+  const visibleLimit = Math.max(3, Math.min(16, Number(maxVisible) || 10));
+  const foot = footer || '↑↓ navigate • Enter select • Esc cancel';
+  const titleText = clipPickerText((icon ? icon + '  ' : '') + title, boxW - 8);
+  const topRow = c.cyan + '╭─' + c.reset + c.brightWhite + c.bold + titleText + c.reset +
+    c.cyan + ' ' + '─'.repeat(Math.max(1, boxW - 4 - displayWidth(titleText))) + '╮' + c.reset;
+  const separator = c.cyan + '├' + '─'.repeat(boxW - 2) + '┤' + c.reset;
+  const bottomRow = c.cyan + '╰' + '─'.repeat(boxW - 2) + '╯' + c.reset;
 
   const allEntries = () => opts.map((option, index) => ({ option, index }));
   const renderBlock = (entries, cursor, query, scrollStart) => {
     const lines = [topRow];
     if (searchable) {
-      lines.push(c.cyan + '│' + c.reset + '  ' + c.dim + 'Search' + c.reset + ': ' + (query || c.dim + 'type to filter' + c.reset));
-      lines.push(c.cyan + '├' + '─'.repeat(boxW - 2) + '┤' + c.reset);
+      const searchText = query ? 'Search: ' + query : 'Search: type to filter';
+      const content = clipPickerText(searchText, innerWidth);
+      lines.push(c.cyan + '│' + c.reset + ' ' + c.dim + padPickerText(content, innerWidth) + c.reset + ' ' + c.cyan + '│' + c.reset);
+      lines.push(separator);
     }
-    const visible = entries.slice(scrollStart, scrollStart + maxVisible);
+
+    const visible = entries.slice(scrollStart, scrollStart + visibleLimit);
     let previousCategory = null;
     visible.forEach((entry, visibleIndex) => {
       const category = entry.option.category || '';
       if (category && category !== previousCategory) {
-        lines.push(c.cyan + '│' + c.reset + '  ' + c.bold + c.magenta + category.toUpperCase() + c.reset);
+        const categoryText = clipPickerText(category.toUpperCase(), innerWidth);
+        lines.push(c.cyan + '│' + c.reset + ' ' + c.magenta + c.bold +
+          padPickerText(categoryText, innerWidth) + c.reset + ' ' + c.cyan + '│' + c.reset);
         previousCategory = category;
       }
-      lines.push(optionRow(entry, scrollStart + visibleIndex === cursor));
+      lines.push(formatPickerOption(entry.option, {
+        index: entry.index,
+        selected: scrollStart + visibleIndex === cursor,
+        width: boxW
+      }));
     });
-    if (!visible.length) lines.push(c.cyan + '│' + c.reset + '  ' + c.dim + 'No matching options.' + c.reset);
-    if (scrollStart > 0) lines.push(c.cyan + '│' + c.reset + '  ' + c.dim + '↑ more results above' + c.reset);
-    if (scrollStart + maxVisible < entries.length) lines.push(c.cyan + '│' + c.reset + '  ' + c.dim + '↓ more results below' + c.reset);
+
+    if (!visible.length) {
+      const empty = padPickerText('No matching options.', innerWidth);
+      lines.push(c.cyan + '│' + c.reset + ' ' + c.dim + empty + c.reset + ' ' + c.cyan + '│' + c.reset);
+    }
+    if (scrollStart > 0 || scrollStart + visibleLimit < entries.length) {
+      const counter = `Showing ${scrollStart + 1}-${Math.min(scrollStart + visibleLimit, entries.length)} of ${entries.length}`;
+      lines.push(c.cyan + '│' + c.reset + ' ' + c.dim + padPickerText(counter, innerWidth) + c.reset + ' ' + c.cyan + '│' + c.reset);
+    }
     lines.push(bottomRow);
-    lines.push('  ' + c.dim + (searchable ? 'Type to search • ' : '') + foot + c.reset);
+    lines.push('  ' + c.dim + clipPickerText((searchable ? 'Type to search • ' : '') + foot, boxW - 4) + c.reset);
     return lines;
   };
 
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     const entries = allEntries();
-    const lines = renderBlock(entries, -1, '', 0);
-    for (const line of lines) process.stdout.write(line + '\n');
+    for (const line of renderBlock(entries, -1, '', 0)) process.stdout.write(line + '\n');
     return new Promise((resolve) => {
       const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-      process.stdout.write('  ' + c.bold + 'Pilih nomor [1-' + opts.length + ']' + c.reset + ' ' + c.dim + '(Enter batal):' + c.reset + ' ');
+      process.stdout.write('  Select a number [1-' + opts.length + '] (Enter to cancel): ');
       rl.question('', (answer) => {
         rl.close();
         const number = Number.parseInt(answer.trim(), 10);
@@ -171,21 +246,20 @@ export async function promptSelect({ title, icon = '', options: opts = [], foote
 
     const ensureVisible = () => {
       if (cursor < scrollStart) scrollStart = cursor;
-      if (cursor >= scrollStart + maxVisible) scrollStart = cursor - maxVisible + 1;
-      scrollStart = Math.max(0, Math.min(scrollStart, Math.max(0, entries.length - maxVisible)));
+      if (cursor >= scrollStart + visibleLimit) scrollStart = cursor - visibleLimit + 1;
+      scrollStart = Math.max(0, Math.min(scrollStart, Math.max(0, entries.length - visibleLimit)));
     };
 
     const redraw = () => {
       ensureVisible();
       const lines = renderBlock(entries, cursor, query, scrollStart);
-      const previous = drawn;
-      if (previous > 0) process.stdout.write('\x1b[' + (previous - 1) + 'A');
+      if (drawn > 0) process.stdout.write('\x1b[' + (drawn - 1) + 'A');
       lines.forEach((line, index) => {
         process.stdout.write((index === 0 ? '\r\x1b[K' : '\n\x1b[K') + line);
       });
-      if (previous > lines.length) {
-        for (let index = lines.length; index < previous; index++) process.stdout.write('\n\x1b[K');
-        process.stdout.write('\x1b[' + (previous - lines.length) + 'A');
+      if (drawn > lines.length) {
+        for (let index = lines.length; index < drawn; index++) process.stdout.write('\n\x1b[K');
+        process.stdout.write('\x1b[' + (drawn - lines.length) + 'A');
       }
       drawn = lines.length;
     };
@@ -222,7 +296,6 @@ export async function promptSelect({ title, icon = '', options: opts = [], foote
     const onKeypress = (str, key = {}) => {
       if (key.ctrl && key.name === 'c') {
         finish(-1);
-        process.exit(0);
         return;
       }
       if (key.name === 'escape') {
@@ -246,16 +319,10 @@ export async function promptSelect({ title, icon = '', options: opts = [], foote
         return;
       }
       if (searchable && key.name === 'backspace') {
-        updateQuery(query.slice(0, -1));
+        updateQuery(Array.from(query).slice(0, -1).join(''));
         return;
       }
-      if (!searchable && str && /^[0-9]$/.test(str)) {
-        const target = Number.parseInt(str, 10) - 1;
-        const found = entries.findIndex(entry => entry.index === target);
-        if (found >= 0) { cursor = found; redraw(); }
-        return;
-      }
-      if (searchable && str && !key.ctrl && !key.meta && str.length === 1 && str >= ' ') {
+      if (searchable && str && !key.ctrl && !key.meta && !key.name?.startsWith('arrow') && str >= ' ') {
         updateQuery(query + str);
       }
     };
