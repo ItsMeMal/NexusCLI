@@ -2,7 +2,7 @@
   "name": "nexus-cli",
   "version": "0.1.0",
   "type": "module",
-  "description": "General-purpose AI agent CLI with tool calling and workspace capabilities",
+  "description": "AI orchestration CLI with dynamic providers, specialist agents, MCP and tool coordination",
   "main": "src/cli.js",
   "bin": {
     "nexus": "src/cli.js"

@@ -7,7 +7,6 @@ import {
   getDefaultModelSelection,
   getProviderCatalog,
   getProviderConfig,
-  getDefaultModelSelection,
   listAllModels,
   listProviderModels,
   removeProvider

@@ -1,6 +1,6 @@
-# NexusCLI — General-Purpose AI Agent
+# NexusCLI — AI Orchestrator
 
-General-purpose AI agent berbasis terminal dengan tool calling, sesi percakapan, provider abstraction, skills, dan kemampuan bekerja dengan workspace ketika memang diminta.
+AI orchestrator berbasis terminal yang mengoordinasikan model, tools, MCP servers, plugins, dan specialist agents untuk menyelesaikan pekerjaan lintas domain.
 
 Arsitektur: **Core + Server (HTTP/SSE) + Multi-Client (CLI/TUI)**.
 
@@ -8,11 +8,12 @@ Arsitektur: **Core + Server (HTTP/SSE) + Multi-Client (CLI/TUI)**.
 
 ## Fitur Utama
 
-- **General-Purpose Agent**: Menangani percakapan, penjelasan, riset, penulisan, analisis, perencanaan, troubleshooting, dan coding sesuai kebutuhan. Agent tidak otomatis menganggap setiap permintaan sebagai tugas coding.
+- **Orchestration Core**: Memahami tujuan, memecah pekerjaan kompleks, mendelegasikan workstream independen ke specialist agents, menjalankan tools, lalu mengintegrasikan dan memverifikasi hasil.
+- **General-Purpose**: Bukan coding-only. Dapat menangani riset, penulisan, analisis, perencanaan, troubleshooting, otomasi, data, dan rekayasa software.
 
 - **10 Core Tools**: `read_file`, `write_file`, `edit_file`, `bash`, `grep` (ripgrep fallback), `glob`, `todo`, `webfetch`, `repo_map`, `task`.
 - **Client/Server Architecture**: REST API + Server-Sent Events (SSE) streaming.
-- **Provider Abstraction**: OpenAI-compatible, Anthropic, Gemini dengan interface seragam (`provider/model`).
+- **Dynamic Provider Registry**: OpenAI-compatible gateways/routers, Anthropic, Gemini. Model discovery otomatis melalui endpoint `/models` atau native model catalog. Provider metadata disimpan lokal di `~/.nexuscli/providers.json`; API key hanya dibaca dari environment variable.
 - **Context Management**: Token estimation, auto-compaction saat >80% batas model, output pruning.
 - **Security & Hardening**:
   - Sandboxing: Docker mount read-write `/workspace` tanpa network (jika tersedia).
@@ -112,19 +113,17 @@ nexus
 Buat file `.env` di root project:
 
 ```env
-# Provider Default (OpenAI Compatible)
-BASE_URL=https://api.openai.com/v1
-API_KEY=sk-...
-MODEL=gpt-4o
+# Example: any OpenAI-compatible AI router
+NEXUS_PROVIDER_OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+NEXUS_PROVIDER_OPENROUTER_API_KEY=your-private-key
+NEXUS_PROVIDER_OPENROUTER_MODEL=provider/model-id
+NEXUS_DEFAULT_PROVIDER=openrouter
 
-# Anthropic (Opsional)
-ANTHROPIC_BASE_URL=https://api.anthropic.com
-ANTHROPIC_API_KEY=sk-ant-...
-ANTHROPIC_MODEL=claude-3-5-sonnet-20241022
-
-# Gemini (Opsional)
-GEMINI_API_KEY=AIzaSy...
-GEMINI_MODEL=gemini-1.5-flash
+# Native providers (optional)
+ANTHROPIC_API_KEY=your-private-key
+ANTHROPIC_MODEL=claude-model-id
+GEMINI_API_KEY=your-private-key
+GEMINI_MODEL=gemini-model-id
 
 # Logging & Debug
 LOG_LEVEL=info
@@ -133,12 +132,17 @@ DEBUG=0
 
 ### Format Model `provider/model`
 
-Dapat mengganti model saat runtime:
+Model dari semua provider yang sudah dikonfigurasi akan ditemukan otomatis:
 ```
-/model anthropic/claude-3-5-sonnet-20241022
-/model gemini/gemini-1.5-flash
-/model openai-compatible/gpt-4o
+/provider                   # daftar provider + pilih model provider
+/model                      # tampilkan semua model dari seluruh provider
+/model openrouter/model-id  # pilih model secara langsung
+/provider list
+/provider add openrouter https://openrouter.ai/api/v1 OPENROUTER_API_KEY - OpenRouter
+/provider remove openrouter
 ```
+
+Perintah `/provider add` hanya menyimpan URL, nama provider, dan nama environment variable ke `~/.nexuscli/providers.json`. Simpan API key sendiri di `.env` lokal atau environment shell. Jangan commit credential ke Git.
 
 ---
 
@@ -253,7 +257,7 @@ Format output JSON:
 ```json
 {
   "sessionId": "ses_...",
-  "model": "Elaina-Free",
+  "model": "openrouter/provider-model-id",
   "mode": "plan",
   "prompt": "Review src/cli.js",
   "response": "Hasil review dari model...",

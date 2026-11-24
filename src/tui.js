@@ -1214,18 +1214,24 @@ function NexusTUIApp({ client, snapshotManager }) {
         return;
       }
 
-      // Return / Enter
+      // Execute the exact command line when arguments are already present.
       if (key.return) {
         const chosen = filteredCommands[selectedCmdIndex];
         if (chosen) {
+          const rawInput = input.trim();
+          const typedCommand = rawInput.split(/\s+/, 1)[0];
+          if (typedCommand === chosen.cmd && rawInput.length > chosen.cmd.length) {
+            setInput('');
+            handleExecute(rawInput);
+            return;
+          }
           if (!chosen.needsArg) {
             setInput('');
             handleExecute(chosen.cmd);
             return;
-          } else {
-            setInput(chosen.cmd + ' ');
-            return;
           }
+          setInput(chosen.cmd + ' ');
+          return;
         }
       }
     }
