@@ -8,25 +8,29 @@ export function assertPathWithinCwd(targetPath, cwd = process.cwd()) {
 
   const resolvedCwd = path.resolve(cwd);
   const resolvedTarget = path.resolve(resolvedCwd, targetPath);
+  const isOutside = (root, candidate) => {
+    const relative = path.relative(root, candidate);
+    return relative === '..' || relative.startsWith('..' + path.sep) || path.isAbsolute(relative);
+  };
 
-  // Check relative path navigation outside root
-  const rel = path.relative(resolvedCwd, resolvedTarget);
-  if (rel.startsWith('..') || path.isAbsolute(rel)) {
+  if (isOutside(resolvedCwd, resolvedTarget)) {
     throw new Error(`Access denied: Path "${targetPath}" resolves outside working directory ("${resolvedCwd}").`);
   }
 
-  // Check canonical symlink escape if file or directory exists
-  try {
-    if (fs.existsSync(resolvedTarget)) {
-      const realTarget = fs.realpathSync(resolvedTarget);
-      const realCwd = fs.realpathSync(resolvedCwd);
-      const realRel = path.relative(realCwd, realTarget);
-      if (realRel.startsWith('..') || path.isAbsolute(realRel)) {
-        throw new Error(`Access denied: Symlink resolves outside working directory ("${realCwd}").`);
-      }
-    }
-  } catch (err) {
-    if (err.message.startsWith('Access denied:')) throw err;
+  // Resolve the closest existing ancestor, including symlinked parent directories
+  // when the destination file or its final directories do not exist yet.
+  const realCwd = fs.realpathSync(resolvedCwd);
+  let existingAncestor = resolvedTarget;
+  while (!fs.existsSync(existingAncestor)) {
+    const parent = path.dirname(existingAncestor);
+    if (parent === existingAncestor) break;
+    existingAncestor = parent;
+  }
+
+  const realAncestor = fs.realpathSync(existingAncestor);
+  const canonicalTarget = path.resolve(realAncestor, path.relative(existingAncestor, resolvedTarget));
+  if (isOutside(realCwd, canonicalTarget)) {
+    throw new Error(`Access denied: Symlink resolves outside working directory ("${realCwd}").`);
   }
 
   return resolvedTarget;
@@ -45,11 +49,10 @@ export class PermissionManager {
     };
 
     this.bashRules = [
-      { pattern: '^git\\s+(status|diff|log|branch)', action: 'allow' },
-      { pattern: '^(npm|node)\\s+--test', action: 'allow' },
-      { pattern: '^npm\\s+test', action: 'allow' },
-      { pattern: '^rm\\b', action: 'ask' },
+      { pattern: '^(?:git\\s+(?:status|diff|log|branch)(?:\\s+[\\w./:-]+)*|npm\\s+test|node\\s+--test)$', action: 'allow' },
       { pattern: '^sudo\\b', action: 'deny' },
+      { pattern: '^(?:shutdown|reboot|poweroff|mkfs(?:\\.|\\s)|fdisk\\b|parted\\b)', action: 'deny' },
+      { pattern: '^rm\\b', action: 'ask' },
       ...(config.bash || [])
     ];
   }
@@ -93,7 +96,9 @@ export class PermissionManager {
       }
       if (toolName === 'bash') {
         const cmd = (args.command || '').trim();
-        const isSafeRead = /^(git\s+(status|diff|log|branch)|dir|ls\b|cat\b)/.test(cmd);
+        const hasShellOperators = /[;&|<>\x60$\\r\\n]/.test(cmd);
+        const isSafeRead = !hasShellOperators &&
+          /^(git\\s+(?:status|diff|log|branch)|dir|ls\\b|cat\\b)/.test(cmd);
         if (!isSafeRead) {
           return {
             action: 'deny',
@@ -116,6 +121,12 @@ export class PermissionManager {
 
     if (toolName === 'bash') {
       const cmd = (args.command || '').trim();
+      if (/[;&|<>\x60$\\r\\n]/.test(cmd)) {
+        return {
+          action: 'ask',
+          reason: 'Shell operators, substitutions, and redirections require explicit approval.'
+        };
+      }
       for (const rule of this.bashRules) {
         try {
           const reg = new RegExp(rule.pattern);
