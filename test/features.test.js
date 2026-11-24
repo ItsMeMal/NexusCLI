@@ -423,8 +423,9 @@ describe('npm CLI package metadata', () => {
     const manifestPath = new URL('../package.json', import.meta.url);
     const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
 
-    assert.equal(manifest.name, 'nexuscode-cli');
+    assert.equal(manifest.name, '@mallssz/nexuscode-cli');
     assert.equal(manifest.bin?.nexuscode, 'src/cli.js');
+    assert.equal(manifest.publishConfig?.access, 'public');
     assert.equal(Object.hasOwn(manifest.bin || {}, 'nexus'), false);
     assert.ok(manifest.files.includes('src/'));
     assert.ok(manifest.engines.node.includes('20'));
