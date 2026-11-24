@@ -1,167 +1,221 @@
-# NEXUSCODE
+# NexusCode
 
-NexusCode adalah AI orchestrator berbasis terminal yang mengoordinasikan model, tools, MCP servers, plugins, dan specialist agents untuk menyelesaikan pekerjaan lintas domain.
+**A general-purpose AI orchestrator for your terminal.**
 
-Arsitektur: **Core + Server (HTTP/SSE) + Multi-Client (CLI/TUI)**.
+NexusCode brings AI models, tools, MCP servers, plugins, and specialist agents into one workflow. It understands the task, chooses an execution path, coordinates the work, and checks the result — whether you're writing code, researching a topic, analyzing information, planning work, or automating a process.
 
----
-
-## Fitur Utama
-
-- **Orchestration Core**: Memahami tujuan, memecah pekerjaan kompleks, mendelegasikan workstream independen ke specialist agents, menjalankan tools, lalu mengintegrasikan dan memverifikasi hasil.
-- **General-Purpose**: Bukan coding-only. Dapat menangani riset, penulisan, analisis, perencanaan, troubleshooting, otomasi, data, dan rekayasa software.
-
-- **10 Core Tools**: `read_file`, `write_file`, `edit_file`, `bash`, `grep` (ripgrep fallback), `glob`, `todo`, `webfetch`, `repo_map`, `task`.
-- **Client/Server Architecture**: REST API + Server-Sent Events (SSE) streaming.
-- **Provider & Model Picker**: Katalog provider yang bisa dicari, status koneksi, koneksi API key, browser OAuth untuk Mallss Nexus Route, dan daftar model yang dikelompokkan per provider. Mendukung OpenAI-compatible gateways/routers, Anthropic, dan Gemini. Metadata provider disimpan di `~/.nexuscli/providers.json`, sedangkan API key dan OAuth access/refresh token dipisah ke `~/.nexuscli/auth.json` dengan permission terbatas; environment variable tetap didukung.
-- **Context Management**: Token estimation, auto-compaction saat >80% batas model, output pruning.
-- **Security & Hardening**:
-  - Sandboxing: Docker mount read-write `/workspace` tanpa network (jika tersedia).
-  - Secret Redaction: Meredaksi token/API key/[.env] di output dan log.
-  - Prompt Injection Mitigation: Menandai konten eksternal sebagai data tidak tepercaya, mewajibkan konfirmasi untuk tool berbahaya setelah membaca data eksternal.
-  - Audit Log: Semua tool call dicatat ke `.agent/audit.log` (JSON Lines).
-  - Git snapshot capture & `/undo`/`/redo` checkpoint stack.
-- **Mode Non-Interaktif (CI-Ready)**: `nexuscode run "prompt" --json` dengan structured output dan exit code.
-- **Share Sesi**: Ekspor percakapan ke HTML mandiri via `/export [path]` atau `exportSessionToHTML()`.
-- **VS Code Extension**: Ekstensi minimal di `extensions/vscode/` untuk mengirim prompt/review langsung dari editor.
-- **Extensibility**:
-  - **Custom Subagents**: `.agent/agents/*.md` (frontmatter: tools, permission, model + system prompt).
-  - **MCP Client**: Stdio & HTTP/SSE via `@modelcontextprotocol/sdk`, konfigurasi di `.agent/mcp.json`.
-  - **Plugins**: `.agent/plugins/*.js` (tool registration & hooks: `before_tool`, `after_tool`, `on_message`).
-  - **Slash Commands**: `.agent/commands/*.md` dengan template `$ARGUMENTS`.
+[![CI](https://github.com/ItsMeMal/NexusCode/actions/workflows/ci.yml/badge.svg)](https://github.com/ItsMeMal/NexusCode/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Node.js](https://img.shields.io/badge/Node.js-20%2B-339933.svg?logo=node.js&logoColor=white)](https://nodejs.org/)
 
 ---
 
-## Struktur Direktori
+## Why NexusCode?
 
-```
-NexusCode/
-├── .agent/
-│   ├── agents/            # Definisi custom subagent (*.md)
-│   ├── commands/          # Custom slash commands (*.md)
-│   ├── plugins/           # JS plugin extensions (*.js)
-│   ├── sessions/          # Riwayat sesi JSON
-│   ├── audit.log          # Audit log eksekusi tool
-│   └── mcp.json           # Konfigurasi MCP server
-├── agent.config.json      # Permission policy (allow/ask/deny & bash rules)
-├── schemas/
-│   └── agent.config.schema.json # JSON Schema untuk editor autocomplete
-├── src/
-│   ├── cli.js             # Terminal CLI client
-│   ├── server.js          # HTTP/SSE server
-│   ├── tui.js             # Ink/React TUI client
-│   ├── core/
-│   │   ├── agent.js       # Agent markdown loader
-│   │   ├── audit.js       # Audit logger
-│   │   ├── command.js     # Slash command manager
-│   │   ├── config.js      # Environment & server config
-│   │   ├── context.js     # Context compaction & token accounting
-│   │   ├── extensions.js  # Extensions orchestrator
-│   │   ├── injection.js   # Prompt injection defense
-│   │   ├── llm.js         # LLM client & provider dispatcher
-│   │   ├── logger.js      # Structured logger (pino)
-│   │   ├── loop.js        # Main agent loop (max 25 steps, loop detection)
-│   │   ├── mcp.js         # MCP client manager
-│   │   ├── permission.js  # PermissionManager (allow/ask/deny)
-│   │   ├── plugin.js      # Plugin manager & hooks
-│   │   ├── prompt.js      # System prompt generator
-│   │   ├── sandbox.js     # Docker sandbox & bash execution
-│   │   ├── secrets.js     # Secret redaction
-│   │   ├── session.js     # Session manager & persistence
-│   │   └── snapshot.js    # Git snapshot & /undo
-│   └── tools/             # Tool implementations
-├── test/                  # Test suite (node:test)
-├── evals/                 # 10 deterministic engineering evaluation tasks
-├── examples/              # Contoh MCP server & extension
-├── AGENTS.md              # Project instructions & guidelines
-└── package.json
-```
+Most AI coding tools are built around a single workflow. NexusCode is designed as a **general-purpose orchestrator**: it can answer directly, use tools, split larger tasks into focused workstreams, delegate independent tasks to specialist agents, and combine the results.
+
+Its architecture separates the orchestration core from its interfaces:
+
+- **Core** — agent loop, context management, permissions, tools, sessions, and extensions.
+- **CLI** — interactive terminal workflow for everyday use.
+- **TUI** — terminal interface built with Ink and React.
+- **HTTP/SSE server** — local client/server interface with streamed responses.
+
+## Features
+
+### General-purpose orchestration
+
+- Handles software engineering, research, writing, analysis, planning, troubleshooting, and automation.
+- Breaks complex requests into manageable tasks and delegates independent work to specialist agents.
+- Coordinates tool execution and consolidates results into a final response.
+- Supports interactive sessions and non-interactive execution for scripts and CI.
+
+### Providers and model selection
+
+- Searchable provider catalog with connection status.
+- OpenAI-compatible APIs and gateways, Anthropic, and Google Gemini.
+- Model discovery from connected providers, with models grouped by provider.
+- Secure, masked API-key entry for providers that use API keys.
+- **Mallss Nexus Route OAuth** — connect through browser sign-in and consent. NexusCode uses Authorization Code + PKCE, refreshes access tokens automatically, and does not require you to create or paste a gateway API key.
+- Environment-based configuration for existing workflows.
+
+### Tools and extensibility
+
+NexusCode includes 10 built-in tools:
+
+| Tool | Purpose |
+|---|---|
+| `read_file` | Read workspace files |
+| `write_file` | Create or overwrite files |
+| `edit_file` | Apply targeted file edits |
+| `bash` | Execute shell commands |
+| `grep` | Search file contents |
+| `glob` | Find files by pattern |
+| `todo` | Track task progress |
+| `webfetch` | Retrieve web content |
+| `repo_map` | Inspect repository structure |
+| `task` | Delegate work to specialist agents |
+
+Extend the workflow with:
+
+- **Custom agents** — Markdown definitions in `.agent/agents/`.
+- **MCP servers** — stdio, Streamable HTTP, and SSE transports configured in `.agent/mcp.json`.
+- **Plugins** — JavaScript or ESM modules in `.agent/plugins/`, with tool registration and lifecycle hooks.
+- **Custom slash commands** — Markdown command templates in `.agent/commands/`.
+
+### Context and session management
+
+- Token estimation and automatic context compaction.
+- Output pruning to keep long sessions manageable.
+- Persistent conversation sessions with resume support.
+- Export conversations as standalone HTML files.
+- Git checkpoints with undo and redo support.
+
+### Safety and observability
+
+- Configurable `allow`, `ask`, and `deny` tool permissions.
+- Optional Docker-backed workspace sandboxing when Docker is available.
+- Secret redaction for sensitive values in output and logs.
+- Prompt-injection defenses that treat retrieved external content as untrusted data.
+- Tool execution audit records in `.agent/audit.log`.
+- Git snapshots for reviewing and recovering workspace changes.
 
 ---
 
-## Instalasi
+## Requirements
 
-### Install dari source
+- **Node.js 20 or newer**
+- npm
+- Git (recommended for workspace snapshots and undo/redo)
+- Docker (optional; enables the Docker-backed execution sandbox)
 
-```bash
-git clone https://github.com/ItsMeMal/NexusCode.git
-cd NexusCode
-npm ci
+## Installation
 
-# Jalankan dari source
-npm start
-```
-
-### Install dari npm
-
-Setelah paket dipublikasikan sebagai package publik:
+### From npm
 
 ```bash
 npm install -g @mallssz/nexuscode-cli
+```
 
-# Jalankan dari direktori mana pun
+Start NexusCode from your workspace:
+
+```bash
+cd path/to/your-project
 nexuscode
 ```
 
-Tanpa instalasi global:
+You can also run it without a global installation:
 
 ```bash
 npm exec --package=@mallssz/nexuscode-cli -- nexuscode
 ```
 
-Untuk pengembangan lokal, jalankan `npm link` dari root repository agar command `nexuscode` mengarah ke checkout ini.
+### From source
+
+```bash
+git clone https://github.com/ItsMeMal/NexusCode.git
+cd NexusCode
+npm ci
+npm start
+```
+
+For local development, run `npm link` from the repository root to expose the `nexuscode` command from your checkout.
 
 ---
 
-## Konfigurasi
+## Quick start
 
-Buat file `.env` di root project:
+1. Open a terminal in the directory you want NexusCode to work in.
+2. Start the CLI with `nexuscode`.
+3. Connect an AI provider with `/connect`.
+4. Choose a model with `/models`.
+5. Describe the task you want to complete.
+
+For example:
+
+```text
+/connect
+/models
+Review this repository for security issues. Do not modify any files.
+```
+
+Use `/plan` for read-only work or `/build` when you want NexusCode to make changes.
+
+## Connect an AI provider
+
+Run `/connect` (or `/provider`) to open the searchable provider catalog. Select a provider and follow its connection flow.
+
+### Mallss Nexus Route — browser OAuth
+
+Select **Mallss Nexus Route** in the provider catalog. NexusCode will:
+
+1. Start a temporary callback listener on `127.0.0.1`.
+2. Open the Mallss Nexus Route sign-in and authorization page in your browser.
+3. Return an authorization code to the local callback.
+4. Exchange the code using OAuth 2.0 Authorization Code with PKCE.
+5. Store the access and refresh tokens in your local NexusCode profile.
+
+No manually generated or copied API key is needed. Access tokens are refreshed automatically. Requests use the models, account permissions, usage limits, and credits available to your Mallss Nexus Route account.
+
+You can reconnect or revoke the connection from the provider menu. The OAuth connection is local to the machine and user profile where you authorize it.
+
+### API-key providers
+
+For other providers, select one from the catalog and enter its API key through the masked terminal prompt. Credentials are kept separately from provider metadata.
+
+### Environment configuration
+
+NexusCode loads a `.env` file from the current working directory. You can also configure providers directly through environment variables:
 
 ```env
-# Example: any OpenAI-compatible AI router
+# Example: an OpenAI-compatible provider or AI router
 NEXUS_PROVIDER_OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
 NEXUS_PROVIDER_OPENROUTER_API_KEY=your-private-key
 NEXUS_PROVIDER_OPENROUTER_MODEL=provider/model-id
 NEXUS_DEFAULT_PROVIDER=openrouter
 
-# Native providers (optional)
+# Native provider credentials (optional)
 ANTHROPIC_API_KEY=your-private-key
 ANTHROPIC_MODEL=claude-model-id
+
 GEMINI_API_KEY=your-private-key
 GEMINI_MODEL=gemini-model-id
 
-# Logging & Debug
+# Logging
 LOG_LEVEL=info
 DEBUG=0
 ```
 
-### Connect Provider & Pilih Model
+Replace the example values with credentials and model IDs from your provider. Never commit private keys, access tokens, or `.env` files to source control.
 
-```
-/connect                    # buka katalog provider yang bisa dicari
-/provider                   # alias untuk /connect
-/models                     # cari model, dikelompokkan berdasarkan provider
-/model                      # alias untuk /models
-/model openrouter/model-id  # pilih model secara langsung
-/provider list              # lihat provider yang telah terdaftar
-/provider remove openrouter # hapus provider lokal dan credential lokal
-```
+### Custom OpenAI-compatible endpoints
 
-Pilih provider dari katalog. Untuk **Mallss Nexus Route**, NexusCode membuka browser ke halaman sign-in/consent Mallss Nexus Route; setelah otorisasi, CLI menerima authorization code melalui callback localhost dan menukarnya dengan token menggunakan OAuth 2.0 Authorization Code + PKCE. Tidak perlu membuat atau menyalin API key secara manual. Access token diperbarui otomatis menggunakan refresh token. Token disimpan terpisah di `~/.nexuscli/auth.json` (permission file `0600`, direktori `0700` pada sistem yang mendukungnya), bukan di repository. Untuk provider lain, masukkan API key melalui prompt tersembunyi. Provider khusus juga bisa ditambahkan melalui opsi **Custom OpenAI-compatible provider**.
+Use the **Custom OpenAI-compatible provider** option in `/connect` to add an endpoint interactively.
 
-Konfigurasi environment lama tetap didukung. Contoh `/provider add` masih tersedia untuk mendaftarkan endpoint dan referensi environment variable:
+You can also register a provider using an environment-variable reference:
 
-```
+```text
 /provider add my-router https://gateway.example/v1 MY_ROUTER_API_KEY - My Router
 ```
 
-Simpan API key di `.env` lokal atau environment shell dan jangan commit credential ke Git. Model dipilih dengan format `provider/model-id` dan ditemukan dari endpoint model provider yang sesuai. Setelah Mallss Nexus Route terhubung, pilih salah satu model akunmu melalui `/models`; request menggunakan saldo, batas pemakaian, dan izin akun Mallss Nexus Route.
+Then set `MY_ROUTER_API_KEY` in your local `.env` file or shell environment. Select models using the `provider/model-id` format.
+
+### Local credential storage
+
+Provider metadata and credentials are stored separately under the local NexusCode configuration directory:
+
+| File | Contents |
+|---|---|
+| `~/.nexuscli/providers.json` | Provider metadata and connection settings |
+| `~/.nexuscli/auth.json` | Locally stored API credentials and OAuth tokens |
+
+On platforms that support POSIX file permissions, NexusCode restricts the configuration directory to `0700` and credential files to `0600`. These files are local to your user profile; they should not be added to a project repository or shared.
 
 ---
 
-## Cara Menulis Custom Agent
+## Working with custom agents
 
-Buat file `.agent/agents/<nama>.md`:
+Create a Markdown file in `.agent/agents/`, for example `.agent/agents/explore.md`:
 
 ```markdown
 ---
@@ -170,73 +224,73 @@ model: gpt-4o-mini
 tools: read_file, grep, glob, repo_map
 permission: read-only
 ---
-You are an exploration subagent. Search the codebase and return a concise summary.
-Do not modify any files.
+
+You are a codebase exploration specialist.
+Inspect the project and return a concise summary.
+Do not modify files.
 ```
 
-Subagent dipanggil oleh agent utama melalui tool `task`:
-```json
-{"agent": "explore", "prompt": "Cari semua penggunaan fungsi X"}
-```
+The frontmatter supports:
 
-Atau paralel:
-```json
-{"tasks": [
-  {"agent": "explore", "prompt": "Cari penggunaan foo"},
-  {"agent": "explore", "prompt": "Cari penggunaan bar"}
-]}
-```
+| Field | Description |
+|---|---|
+| `description` | What the specialist agent is responsible for |
+| `model` | Optional model override |
+| `tools` | Comma-separated list of tools available to the agent |
+| `permission` | Permission profile for the agent |
 
----
+The main agent can delegate focused work through the `task` tool. Independent tasks can be run in parallel.
 
-## Cara Menulis Plugin
+## Working with plugins
 
-Buat file `.agent/plugins/<nama>.js`:
+Create a JavaScript or ESM module in `.agent/plugins/`, for example `.agent/plugins/example.js`:
 
 ```javascript
-export default function myPlugin({ registry, hooks, workingDir, registerTool }) {
-  // 1. Daftarkan custom tool
+export default function myPlugin({ hooks, registerTool }) {
   registerTool({
     name: 'custom_ping',
-    description: 'Ping test tool',
+    description: 'Return a response for a host.',
     parameters: {
       type: 'object',
-      properties: { host: { type: 'string' } }
+      properties: {
+        host: { type: 'string' }
+      },
+      required: ['host']
     },
     async execute({ host }) {
       return `Pong: ${host}`;
     }
   });
 
-  // 2. Tambah hook
-  hooks.before_tool.push(async ({ tool, args }) => {
-    console.log(`[myPlugin] Calling ${tool}`);
+  hooks.before_tool.push(async ({ tool }) => {
+    console.log(`[plugin] Calling ${tool}`);
   });
 }
 ```
 
----
+Plugins can register tools and attach handlers to `before_tool`, `after_tool`, and `on_message`.
 
-## Cara Menulis Custom Slash Command
+## Custom slash commands
 
-Buat file `.agent/commands/<command>.md`:
+Create a Markdown template in `.agent/commands/`. For example, `.agent/commands/review.md`:
 
-Contoh `.agent/commands/review.md`:
 ```markdown
-Review code berikut untuk standar kualitas dan bug: $ARGUMENTS
-Berikan checklist ringkas perbaikan jika ada.
+Review the following code for correctness, maintainability, and security:
+
+$ARGUMENTS
+
+List actionable findings and explain their impact.
 ```
 
-Di CLI, panggil dengan:
-```
+Run the command from the NexusCode prompt:
+
+```text
 /review src/core/loop.js
 ```
 
----
+## Connect MCP servers
 
-## Menghubungkan MCP Server
-
-Edit `.agent/mcp.json`:
+Configure MCP servers in `.agent/mcp.json`. For example, a local stdio server:
 
 ```json
 {
@@ -250,98 +304,154 @@ Edit `.agent/mcp.json`:
 }
 ```
 
-Tool MCP otomatis masuk ke registry dengan prefix `<server>__<tool>`.
+NexusCode discovers the server's tools and registers them with a server-name prefix:
+
+```text
+filesystem__tool_name
+```
+
+The MCP manager supports stdio, Streamable HTTP, and SSE transports.
 
 ---
 
-## Mode Non-Interaktif (CI / Automation)
+## CLI commands
 
-Untuk integrasi ke CI/CD (GitHub Actions, script):
+Type `/` in the interactive prompt to open the searchable command palette. Use the arrow keys to navigate, Enter to select, and Tab to complete a command.
+
+| Command | Description |
+|---|---|
+| `/plan` | Switch to read-only mode |
+| `/build` | Switch to full execution mode |
+| `/connect` · `/provider` | Connect or manage AI providers |
+| `/models` · `/model` | Search and select a model |
+| `/model <provider/model>` | Select a model directly |
+| `/provider list` | List configured providers |
+| `/provider add ...` | Register a custom provider |
+| `/provider remove <id>` | Remove a locally registered provider |
+| `/cost` · `/usage` | View token usage and estimated session costs |
+| `/compact` | Compact conversation context |
+| `/diff` | Show the workspace Git diff |
+| `/undo` | Restore the previous Git checkpoint |
+| `/redo` | Re-apply a reverted checkpoint |
+| `/checkpoints` | List checkpoints in the current session |
+| `/checkpoint [label]` | Create a named checkpoint |
+| `/sessions` | List saved sessions |
+| `/resume <id>` | Resume a saved session |
+| `/new` | Start a new session |
+| `/export [path]` | Export the current session to standalone HTML |
+| `/doctor` | Run environment and workspace diagnostics |
+| `/init` | Create starter `.agent/` configuration |
+| `/abort` | Stop the current agent task |
+| `/clear` | Clear the terminal |
+| `/help` | Show command help |
+| `/exit` | Exit NexusCode |
+
+---
+
+## Non-interactive mode
+
+Use `nexuscode run` to execute a prompt from a script, CI job, or terminal command:
 
 ```bash
-# Output teks biasa
-nexuscode run "Tulis fungsi fibonacci di fib.js" --approve
+# Run a task in the default build mode
+nexuscode run "Create a small utility that formats dates"
 
-# Output JSON terstruktur ke stdout (exit code 0 jika sukses, 1 jika gagal)
-nexuscode run "Review src/cli.js" --json --mode plan > review.json
+# Run in read-only mode and emit structured JSON
+nexuscode run "Review src/cli.js for bugs" --mode plan --json
+
+# Select a model and approve tool actions non-interactively
+nexuscode run "Add tests for the parser" --model openrouter/provider-model-id --approve
 ```
 
-Format output JSON:
-```json
-{
-  "sessionId": "ses_...",
-  "model": "openrouter/provider-model-id",
-  "mode": "plan",
-  "prompt": "Review src/cli.js",
-  "response": "Hasil review dari model...",
-  "toolCalls": [{ "name": "read_file", "args": {...}, "output": "..." }],
-  "error": null,
-  "exitCode": 0,
-  "usage": { "prompt_tokens": 120, "completion_tokens": 45, "total_tokens": 165 }
-}
-```
+Available options include:
 
-Lihat contoh workflow lengkap di [`.github/workflows/agent-review.yml`](.github/workflows/agent-review.yml).
+| Option | Description |
+|---|---|
+| `--json` | Write structured results to stdout |
+| `--model <id>` | Override the selected model |
+| `--mode <mode>` | Set the execution mode, such as `plan` or `build` |
+| `--approve`, `--yes`, `-y` | Automatically approve permission prompts |
+| `--debug` | Enable debug output |
+
+The JSON result includes session information, the selected model and mode, the response, tool calls, error status, exit code, and token usage.
+
+A GitHub Actions example is available in [`.github/workflows/agent-review.yml`](.github/workflows/agent-review.yml).
 
 ---
 
-## Share Sesi ke HTML
+## Local server and editor integration
 
-Di dalam sesi interaktif:
-```
-/export
-# Menghasilkan nexus-session-<id>.html yang siap dibuka di browser
+Start the local HTTP/SSE server with:
+
+```bash
+npm run server
 ```
 
-Atau tentukan file output:
-```
-/export docs/session-review.html
-```
+The server exposes the NexusCode session and streaming interface for compatible local clients.
+
+A lightweight VS Code extension is included in `extensions/vscode/`. It provides commands to send a prompt or review selected code through the configured Nexus server.
 
 ---
 
-## Undo / Redo Berbasis Git
+## Development
 
-Nexus membuat checkpoint setiap kali ada perubahan di mode `build`:
-- `/undo` — mundur satu checkpoint
-- `/redo` — maju satu checkpoint (jika belum ada branch baru)
-- `/checkpoints` — daftar seluruh checkpoint yang tersedia
-- `/checkpoint [label]` — buat checkpoint manual bernama
+Install dependencies and run the checks:
 
----
+```bash
+npm ci
+npm test
+npm run eval
+```
 
-## Daftar Slash Command
+Useful project scripts:
 
-Ketik `/` untuk melihat seluruh command beserta deskripsinya. Gunakan tombol panah untuk navigasi, **Enter** untuk memilih, dan **Tab** untuk melengkapi command:
+| Script | Description |
+|---|---|
+| `npm start` | Start the CLI |
+| `npm run tui` | Start the Ink-based TUI |
+| `npm run server` | Start the HTTP/SSE server |
+| `npm test` | Run the Node.js test suite |
+| `npm run eval` | Run deterministic evaluation tasks |
+| `npm run pack:check` | Preview files included in the npm package |
 
-| Kategori | Command | Deskripsi |
-|---|---|---|
-| **Modes** | `/plan` | Mode read-only (eksekusi file modification diblokir) |
-| | `/build` | Mode default (eksekusi penuh: write, edit, bash) |
-| **Provider & Model** | `/connect` / `/provider` | Cari katalog dan hubungkan provider |
-| | `/models` / `/model` | Cari model dari provider yang terhubung, dikelompokkan per provider |
-| | `/model <provider/model>` | Ganti model aktif secara langsung |
-| | `/provider list` | Tampilkan daftar provider yang terdaftar |
-| **Model & Context** | `/compact` | Ringkas riwayat percakapan secara manual untuk menghemat token |
-| | `/compact` | Ringkas riwayat percakapan secara manual untuk menghemat token |
-| | `/cost` / `/usage` | Laporan konsumsi token dan estimasi biaya per sesi |
-| **Workspace & Git** | `/diff` | Tampilkan git diff perubahan workspace saat ini |
-| | `/undo` | Kembalikan workspace ke checkpoint git sebelumnya |
-| | `/redo` | Majukan workspace ke checkpoint git berikutnya |
-| | `/checkpoints` | Tampilkan seluruh daftar checkpoint dalam sesi ini |
-| | `/checkpoint [label]` | Buat checkpoint git manual bernama |
-| **Session** | `/sessions` | Daftar seluruh sesi tersimpan dan jumlah token |
-| | `/resume <id>` | Lanjutkan sesi yang pernah disimpan |
-| | `/new` | Mulai sesi percakapan baru yang bersih |
-| | `/export [path]` | Ekspor percakapan ke file HTML mandiri (dark mode) |
-| **System** | `/doctor` | Cek kesehatan env (Node, Git, Docker, API Key, Tools) |
-| | `/init` | Scaffold folder `.agent/` dan `agent.config.json` |
-| | `/clear` | Bersihkan layar terminal dan gambar ulang status banner |
-| | `/help` | Tampilkan menu bantuan command |
-| | `/exit` / `quit` | Keluar dari Nexus CLI |
+The project uses Node.js built-in test tooling (`node:test`) and deterministic evaluation tasks to check core behavior.
 
----
+## Project structure
 
-## Lisensi
+```text
+NexusCode/
+├── .agent/
+│   ├── agents/          # Custom specialist agents
+│   ├── commands/        # Custom slash commands
+│   ├── plugins/         # JavaScript/ESM plugins
+│   └── mcp.json         # MCP server configuration
+├── .github/workflows/   # CI and automation workflows
+├── examples/            # MCP and extension examples
+├── extensions/vscode/   # VS Code extension
+├── evals/               # Deterministic evaluation tasks
+├── schemas/             # Configuration JSON schemas
+├── src/
+│   ├── core/             # Agent orchestration and runtime
+│   ├── providers/        # Provider adapters and OAuth
+│   ├── tools/            # Built-in tools
+│   ├── cli.js            # Interactive and non-interactive CLI
+│   ├── server.js         # HTTP/SSE server
+│   └── tui.js            # Ink-based terminal UI
+├── test/                # Automated tests
+├── AGENTS.md            # Project-level agent guidelines
+├── agent.config.json    # Tool and shell permission policy
+└── package.json
+```
 
-MIT
+## Contributing
+
+Issues and pull requests are welcome. Before submitting a change:
+
+1. Keep changes focused and preserve unrelated behavior.
+2. Add or update tests for behavioral changes.
+3. Run `npm test` and `npm run eval`.
+4. Never commit API keys, OAuth tokens, personal data, or local session files.
+
+## License
+
+NexusCode is released under the [MIT License](LICENSE).
