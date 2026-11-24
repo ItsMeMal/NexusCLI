@@ -10,10 +10,35 @@ function sanitizeName(name) {
 }
 
 export class McpManager {
-  constructor(workingDir = process.cwd()) {
+  constructor(workingDir = process.cwd(), options = {}) {
     this.workingDir = workingDir;
-    this.clients = new Map(); // serverName -> { client, transport }
-    this.registeredTools = []; // list of tool names
+    this.clients = new Map();
+    this.registeredTools = [];
+    this.registry = null;
+    this.clientFactory = options.clientFactory || (() =>
+      new Client({ name: 'nexuscode', version: '0.1.2' }, { capabilities: {} }));
+    this.transportFactory = options.transportFactory || ((serverConfig, name) => {
+      if (serverConfig.url) {
+        const url = new URL(serverConfig.url);
+        if (!['http:', 'https:'].includes(url.protocol)) {
+          throw new Error(`MCP server "${name}" URL must use HTTP or HTTPS.`);
+        }
+        if (serverConfig.transport === 'sse') return new SSEClientTransport(url);
+        if (serverConfig.transport && serverConfig.transport !== 'streamable-http') {
+          throw new Error(`Unsupported MCP transport "${serverConfig.transport}" for "${name}".`);
+        }
+        return new StreamableHTTPClientTransport(url);
+      }
+      if (serverConfig.command) {
+        return new StdioClientTransport({
+          command: serverConfig.command,
+          args: Array.isArray(serverConfig.args) ? serverConfig.args : [],
+          env: { ...process.env, ...(serverConfig.env || {}) },
+          cwd: serverConfig.cwd || this.workingDir
+        });
+      }
+      throw new Error(`MCP server "${name}" must define either "command" (stdio) or "url" (HTTP).`);
+    });
   }
 
   getConfigPath() {
@@ -26,7 +51,8 @@ export class McpManager {
     try {
       const raw = fs.readFileSync(configPath, 'utf8');
       const parsed = JSON.parse(raw);
-      return { servers: Array.isArray(parsed.servers) ? parsed.servers : [] };
+      if (!Array.isArray(parsed.servers)) throw new Error('The "servers" field must be an array.');
+      return { servers: parsed.servers };
     } catch (err) {
       console.warn(`[MCP] Failed to parse mcp.json: ${err.message}`);
       return { servers: [] };
@@ -34,51 +60,51 @@ export class McpManager {
   }
 
   async connectServer(serverConfig, registry) {
-    const name = sanitizeName(serverConfig.name || 'mcp');
-    const client = new Client({ name: 'nexus-cli', version: '0.1.0' }, { capabilities: {} });
+    if (!serverConfig || typeof serverConfig !== 'object') {
+      throw new Error('MCP server configuration must be an object.');
+    }
+    const name = sanitizeName(serverConfig.name) || 'mcp';
+    if (this.clients.has(name)) {
+      throw new Error(`MCP server name "${name}" is duplicated after normalization.`);
+    }
 
+    const client = this.clientFactory(name, serverConfig);
     let transport;
-    if (serverConfig.url) {
-      const url = new URL(serverConfig.url);
-      if (serverConfig.transport === 'sse') {
-        transport = new SSEClientTransport(url);
-      } else {
-        transport = new StreamableHTTPClientTransport(url);
-      }
-    } else if (serverConfig.command) {
-      transport = new StdioClientTransport({
-        command: serverConfig.command,
-        args: Array.isArray(serverConfig.args) ? serverConfig.args : [],
-        env: { ...process.env, ...(serverConfig.env || {}) },
-        cwd: serverConfig.cwd || this.workingDir
-      });
-    } else {
-      throw new Error(`MCP server "${name}" has no command or url.`);
-    }
-
-    await client.connect(transport);
-    const { tools } = await client.listTools();
-
     const registered = [];
-    for (const tool of tools || []) {
-      const toolName = sanitizeName(tool.name);
-      const prefixed = `${name}__${toolName}`;
-      const mcpTool = {
-        name: prefixed,
-        description: `[MCP:${name}] ${tool.description || toolName}`,
-        parameters: tool.inputSchema || { type: 'object', properties: {} },
-        async execute(args = {}) {
-          const result = await client.callTool({ name: tool.name, arguments: args });
-          return formatToolResult(result);
-        }
-      };
-      registry.register(mcpTool);
-      registered.push(prefixed);
-    }
+    try {
+      transport = this.transportFactory(serverConfig, name);
+      await client.connect(transport);
+      const response = await client.listTools();
+      const tools = Array.isArray(response?.tools) ? response.tools : [];
 
-    this.clients.set(name, { client, transport, serverConfig });
-    this.registeredTools.push(...registered);
-    return { name, toolCount: registered.length, tools: registered };
+      for (const tool of tools) {
+        if (!tool?.name) continue;
+        const toolName = sanitizeName(tool.name);
+        const prefixed = `${name}__${toolName}`;
+        if (registry.has(prefixed)) throw new Error(`Tool "${prefixed}" is already registered.`);
+
+        registry.register({
+          name: prefixed,
+          source: 'mcp',
+          description: `[MCP:${name}] ${tool.description || toolName}`,
+          parameters: tool.inputSchema || { type: 'object', properties: {} },
+          async execute(args = {}) {
+            const result = await client.callTool({ name: tool.name, arguments: args });
+            return formatToolResult(result);
+          }
+        });
+        registered.push(prefixed);
+      }
+
+      this.clients.set(name, { client, transport, serverConfig });
+      this.registry = registry;
+      this.registeredTools.push(...registered);
+      return { name, toolCount: registered.length, tools: registered };
+    } catch (err) {
+      for (const toolName of registered) registry.unregister?.(toolName);
+      try { await client.close(); } catch { /* best-effort cleanup after failed handshake */ }
+      throw err;
+    }
   }
 
   async connectAll(registry) {
@@ -86,11 +112,11 @@ export class McpManager {
     const results = [];
     for (const server of config.servers) {
       try {
-        const r = await this.connectServer(server, registry);
-        results.push({ ...r, ok: true });
+        const result = await this.connectServer(server, registry);
+        results.push({ ...result, ok: true });
       } catch (err) {
-        results.push({ name: server.name, ok: false, error: err.message });
-        console.warn(`[MCP] Failed to connect "${server.name}": ${err.message}`);
+        results.push({ name: server?.name || 'mcp', ok: false, error: err.message });
+        console.warn(`[MCP] Failed to connect "${server?.name || 'mcp'}": ${err.message}`);
       }
     }
     return results;
@@ -98,9 +124,14 @@ export class McpManager {
 
   async disconnectAll() {
     for (const [name, { client }] of this.clients) {
-      try { await client.close(); } catch { /* ignore */ }
+      try { await client.close(); } catch { /* best-effort shutdown */ }
+      for (const toolName of this.registeredTools) {
+        if (toolName.startsWith(`${name}__`)) this.registry?.unregister?.(toolName);
+      }
     }
     this.clients.clear();
+    this.registeredTools = [];
+    this.registry = null;
   }
 }
 
