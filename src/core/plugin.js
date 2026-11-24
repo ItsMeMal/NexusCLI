@@ -2,15 +2,15 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
+const HOOK_NAMES = ['before_tool', 'after_tool', 'on_message'];
+
 export class PluginManager {
   constructor(workingDir = process.cwd()) {
     this.workingDir = workingDir;
-    this.hooks = {
-      before_tool: [],
-      after_tool: [],
-      on_message: []
-    };
+    this.hooks = Object.fromEntries(HOOK_NAMES.map(name => [name, []]));
     this.loadedPlugins = [];
+    this.initialized = false;
+    this.loadResult = [];
   }
 
   getPluginsDir() {
@@ -18,28 +18,47 @@ export class PluginManager {
   }
 
   async loadPlugins(registry) {
+    if (this.initialized) return this.loadResult;
     const dir = this.getPluginsDir();
-    if (!fs.existsSync(dir)) return [];
-    let entries = [];
-    try {
-      entries = fs.readdirSync(dir, { withFileTypes: true });
-    } catch {
+    if (!fs.existsSync(dir)) {
+      this.initialized = true;
       return [];
     }
+
+    let entries = [];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true })
+        .filter(entry => entry.isFile() && /\.m?js$/i.test(entry.name))
+        .sort((a, b) => a.name.localeCompare(b.name));
+    } catch (err) {
+      this.initialized = true;
+      return [{ ok: false, error: err.message }];
+    }
+
     const results = [];
     for (const entry of entries) {
-      if (!entry.isFile()) continue;
-      if (!entry.name.endsWith('.js') && !entry.name.endsWith('.mjs')) continue;
       const fullPath = path.join(dir, entry.name);
       try {
         const mod = await import(pathToFileURL(fullPath).href);
         const plugin = mod.default || mod;
+        const registerTool = (tool) => {
+          if (!tool || typeof tool !== 'object') {
+            throw new Error('registerTool expects a tool definition object.');
+          }
+          registry.register({ ...tool, source: tool.source || 'plugin' });
+        };
         const ctx = {
           registry,
           hooks: this.hooks,
           workingDir: this.workingDir,
-          registerTool: (tool) => registry.register(tool)
+          registerTool,
+          on: (name, handler) => {
+            if (!HOOK_NAMES.includes(name)) throw new Error(`Unknown plugin hook "${name}".`);
+            if (typeof handler !== 'function') throw new Error(`Hook "${name}" must be a function.`);
+            this.hooks[name].push(handler);
+          }
         };
+
         if (typeof plugin === 'function') {
           await plugin(ctx);
         } else if (plugin && typeof plugin.register === 'function') {
@@ -47,11 +66,11 @@ export class PluginManager {
         } else if (plugin && typeof plugin.init === 'function') {
           await plugin.init(ctx);
         }
-        // Allow plugin to declare hooks object
+
         if (plugin && plugin.hooks) {
-          for (const key of Object.keys(this.hooks)) {
-            if (Array.isArray(plugin.hooks[key])) {
-              this.hooks[key].push(...plugin.hooks[key]);
+          for (const name of HOOK_NAMES) {
+            if (Array.isArray(plugin.hooks[name])) {
+              this.hooks[name].push(...plugin.hooks[name].filter(fn => typeof fn === 'function'));
             }
           }
         }
@@ -62,14 +81,17 @@ export class PluginManager {
         console.warn(`[Plugin] Failed to load "${entry.name}": ${err.message}`);
       }
     }
+
+    this.initialized = true;
+    this.loadResult = results;
     return results;
   }
 
   async runHook(name, payload) {
-    const fns = this.hooks[name] || [];
-    for (const fn of fns) {
+    const handlers = this.hooks[name] || [];
+    for (const handler of handlers) {
       try {
-        await fn(payload);
+        await handler(payload);
       } catch (err) {
         console.warn(`[Plugin hook ${name}] ${err.message}`);
       }
