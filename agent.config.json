@@ -1,0 +1,20 @@
+{
+  "$schema": "./schemas/agent.config.schema.json",
+  "permissions": {
+    "tools": {
+      "read_file": "allow",
+      "grep": "allow",
+      "glob": "allow",
+      "write_file": "ask",
+      "edit_file": "ask",
+      "bash": "ask"
+    },
+    "bash": [
+      { "pattern": "^git\\s+(status|diff|log|branch)", "action": "allow" },
+      { "pattern": "^(npm|node)\\s+--test", "action": "allow" },
+      { "pattern": "^npm\\s+test", "action": "allow" },
+      { "pattern": "^rm\\b", "action": "ask" },
+      { "pattern": "^sudo\\b", "action": "deny" }
+    ]
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "name": "nexus-cli",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Coding agent CLI from scratch",
+  "main": "src/cli.js",
+  "bin": {
+    "nexus": "src/cli.js"
+  },
+  "files": [
+    "src/",
+    "schemas/",
+    "examples/",
+    "agent.config.json",
+    "README.md"
+  ],
+  "scripts": {
+    "start": "node src/cli.js",
+    "server": "node src/server.js",
+    "test": "node --test test/*.test.js",
+    "tui": "node src/tui.js",
+    "eval": "node evals/eval_runner.js",
+    "pack:check": "npm pack --dry-run"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "ink": "^8.0.0",
+    "node-fetch": "^3.3.2",
+    "pino": "^9.0.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  }
+}

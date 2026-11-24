@@ -1,0 +1,9 @@
+{
+  "servers": [
+    {
+      "name": "filesystem",
+      "command": "node",
+      "args": ["examples/mcp-filesystem-server.mjs", "."]
+    }
+  ]
+}

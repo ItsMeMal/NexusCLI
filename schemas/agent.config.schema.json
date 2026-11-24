@@ -1,0 +1,31 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://nexus-cli.dev/schemas/agent.config.json",
+  "title": "Nexus Agent Config",
+  "type": "object",
+  "properties": {
+    "permissions": {
+      "type": "object",
+      "properties": {
+        "tools": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "enum": ["allow", "ask", "deny"]
+          }
+        },
+        "bash": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "pattern": { "type": "string" },
+              "action": { "type": "string", "enum": ["allow", "ask", "deny"] }
+            },
+            "required": ["pattern", "action"]
+          }
+        }
+      }
+    }
+  }
+}

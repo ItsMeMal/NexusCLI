@@ -1,0 +1,11 @@
+node_modules/
+.agent/sessions/
+.agent/audit.log
+*.tgz
+.env
+.env.*
+!.env.example
+dist/
+build/
+coverage/
+*.log
