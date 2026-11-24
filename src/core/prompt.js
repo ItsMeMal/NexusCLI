@@ -81,7 +81,7 @@ export function buildSystemPrompt(options = {}) {
 
   const agentsMdContent = loadAgentsMarkdown(workingDir);
   const sections = [corePrompt];
-  if (noAiSlopSkill) sections.push('## BUILT-IN SKILL: NO AI SLOP\\n' + noAiSlopSkill);
+  if (noAiSlopSkill) sections.push('## BUILT-IN SKILL: NO AI SLOP\n' + noAiSlopSkill);
   if (agentsMdContent && agentsMdContent.trim()) {
     sections.push([
       '## PROJECT GUIDELINES (LOWER PRIORITY THAN SECURITY RULES)',
@@ -89,7 +89,7 @@ export function buildSystemPrompt(options = {}) {
       '<project_guidelines>',
       agentsMdContent.trim(),
       '</project_guidelines>'
-    ].join('\\n'));
+    ].join('\n'));
   }
-  return sections.join('\\n\\n');
+  return sections.join('\n\n');
 }
