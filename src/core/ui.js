@@ -1,4 +1,8 @@
 import readline from 'node:readline';
+import fs from 'node:fs';
+
+let APP_VERSION = '0.1.2';
+try { APP_VERSION = JSON.parse(fs.readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version || APP_VERSION; } catch {}
 
 // ─── ANSI Styling Palette (Truecolor + High-contrast ANSI fallback) ──────────
 
@@ -156,7 +160,7 @@ export function renderBanner({ sessionId, mode, model, serverUrl, gitBranch = 'c
     ? `${c.bgYellow}${c.black}${c.bold} PLAN ${c.reset}`
     : `${c.bgGreen}${c.black}${c.bold} BUILD ${c.reset}`;
 
-  const topBrand = `${c.bold}${c.brightWhite}✦ NEXUSCODE${c.reset} ${c.dim}v0.1.0${c.reset}`;
+  const topBrand = `${c.bold}${c.brightWhite}✦ NEXUSCODE${c.reset} ${c.dim}v${APP_VERSION}${c.reset}`;
   const topStatus = `${c.green}● ONLINE${c.reset} ${modeBadge}`;
   const row1Gap = Math.max(1, innerWidth - stripAnsi(topBrand).length - stripAnsi(topStatus).length);
 
@@ -201,6 +205,7 @@ export function renderCommandList() {
     { cmd: '/checkpoints', cat: 'GIT', desc: 'List git checkpoints' },
     { cmd: '/checkpoint [l]', cat: 'GIT', desc: 'Create manual checkpoint' },
     { cmd: '/doctor', cat: 'SYS', desc: 'System & env diagnostic' },
+    { cmd: '/update', cat: 'SYS', desc: 'Update from GitHub main' },
     { cmd: '/abort', cat: 'SYS', desc: 'Stop the current task' },
     { cmd: '/init', cat: 'SYS', desc: 'Scaffold .agent/ config' },
     { cmd: '/clear', cat: 'UI', desc: 'Clear terminal screen' }
