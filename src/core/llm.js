@@ -1,4 +1,4 @@
-import { createProvider, parseModelConfig } from './providers/index.js';
+import { createProvider, getProviderCatalog, parseModelConfig } from './providers/index.js';
 
 export function getLLMConfig(customConfig = {}) {
   return {

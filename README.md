@@ -305,7 +305,10 @@ Ketik `/` untuk melihat seluruh command beserta deskripsinya. Gunakan tombol pan
 |---|---|---|
 | **Modes** | `/plan` | Mode read-only (eksekusi file modification diblokir) |
 | | `/build` | Mode default (eksekusi penuh: write, edit, bash) |
-| **Model & Context** | `/model [name]` | Lihat atau ganti model LLM aktif saat runtime |
+| **Provider & Model** | `/provider` | Kelola dan pilih provider/router yang sudah dikonfigurasi |
+| | `/model` | Tampilkan model gabungan dari seluruh provider |
+| | `/model <provider/model>` | Ganti model aktif secara langsung |
+| **Model & Context** | `/compact` | Ringkas riwayat percakapan secara manual untuk menghemat token |
 | | `/compact` | Ringkas riwayat percakapan secara manual untuk menghemat token |
 | | `/cost` / `/usage` | Laporan konsumsi token dan estimasi biaya per sesi |
 | **Workspace & Git** | `/diff` | Tampilkan git diff perubahan workspace saat ini |

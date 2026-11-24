@@ -6,7 +6,7 @@ export class GeminiProvider {
   constructor(config = {}) {
     this.baseUrl = config.baseUrl || process.env.GEMINI_BASE_URL || 'https://generativelanguage.googleapis.com';
     this.apiKey = config.apiKey || process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '';
-    this.model = config.model || process.env.GEMINI_MODEL || 'gemini-1.5-flash';
+    this.model = config.model || process.env.GEMINI_MODEL || '';
     this.maxRetries = config.maxRetries || 3;
     this.fallbackModel = config.fallbackModel;
   }

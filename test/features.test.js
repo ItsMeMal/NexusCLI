@@ -229,7 +229,7 @@ describe('UI Module', () => {
 
 import { COMMANDS_REGISTRY } from '../src/core/prompt_input.js';
 import { buildSystemPrompt } from '../src/core/prompt.js';
-import { parseModelConfig } from '../src/core/providers/index.js';
+import { addProvider, getProviderCatalog, listAllModels, parseModelConfig, removeProvider } from '../src/core/providers/index.js';
 
 describe('Prompt Input Module', () => {
   test('COMMANDS_REGISTRY contains core commands', () => {
@@ -247,8 +247,10 @@ describe('Prompt Input Module', () => {
 describe('General-purpose agent and provider selection', () => {
   test('system prompt does not assume every request is a coding task', () => {
     const prompt = buildSystemPrompt({ workingDir: path.resolve('test/fixtures/calculator') });
-    assert.match(prompt, /general-purpose AI agent/i);
-    assert.match(prompt, /Do not assume every request is a coding task/i);
+    assert.match(prompt, /general-purpose AI orchestrator/i);
+    assert.match(prompt, /Do not assume a request is about coding/i);
+    assert.match(prompt, /delegate independent research/i);
+    assert.match(prompt, /todo tool/i);
     assert.doesNotMatch(prompt, /expert autonomous coding agent CLI/i);
   });
 
@@ -293,6 +295,62 @@ describe('General-purpose agent and provider selection', () => {
       else process.env.API_KEY = previousKey;
       if (previousBaseUrl === undefined) delete process.env.BASE_URL;
       else process.env.BASE_URL = previousBaseUrl;
+    }
+  });
+});
+
+
+describe('Dynamic provider registry and model discovery', () => {
+  test('stores provider metadata without secrets and discovers gateway models', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-provider-registry-'));
+    const previousConfigDir = process.env.NEXUS_CONFIG_DIR;
+    const previousApiKey = process.env.NEXUS_TEST_ROUTER_KEY;
+    const originalFetch = globalThis.fetch;
+    const secret = 'test-router-key-not-for-storage';
+
+    process.env.NEXUS_CONFIG_DIR = tempDir;
+    process.env.NEXUS_TEST_ROUTER_KEY = secret;
+    try {
+      addProvider({
+        id: 'router-test',
+        label: 'Test Router',
+        baseUrl: 'https://gateway.example/v1',
+        apiKeyEnv: 'NEXUS_TEST_ROUTER_KEY'
+      });
+
+      const registryFile = path.join(tempDir, 'providers.json');
+      const persisted = fs.readFileSync(registryFile, 'utf8');
+      assert.ok(persisted.includes('NEXUS_TEST_ROUTER_KEY'));
+      assert.ok(!persisted.includes(secret), 'API key must not be written to provider registry');
+
+      const catalog = getProviderCatalog('router-test/org/model-a');
+      const provider = catalog.find(item => item.id === 'router-test');
+      assert.ok(provider?.configured);
+      assert.equal(provider.active, true);
+      assert.equal(Object.hasOwn(provider, 'apiKey'), false, 'Provider catalog must not expose API key');
+
+      globalThis.fetch = async (url, options) => {
+        assert.equal(url, 'https://gateway.example/v1/models');
+        assert.equal(options.headers.Authorization, 'Bearer ' + secret);
+        return new Response(JSON.stringify({
+          data: [{ id: 'org/model-a' }, { id: 'model-b' }]
+        }), { status: 200, headers: { 'content-type': 'application/json' } });
+      };
+
+      const discovered = await listAllModels();
+      assert.deepEqual(
+        discovered.models.map(model => model.id).sort(),
+        ['router-test/model-b', 'router-test/org/model-a']
+      );
+      assert.deepEqual(discovered.errors, []);
+      assert.equal(removeProvider('router-test'), true);
+    } finally {
+      globalThis.fetch = originalFetch;
+      if (previousConfigDir === undefined) delete process.env.NEXUS_CONFIG_DIR;
+      else process.env.NEXUS_CONFIG_DIR = previousConfigDir;
+      if (previousApiKey === undefined) delete process.env.NEXUS_TEST_ROUTER_KEY;
+      else process.env.NEXUS_TEST_ROUTER_KEY = previousApiKey;
+      fs.rmSync(tempDir, { recursive: true, force: true });
     }
   });
 });

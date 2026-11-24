@@ -6,7 +6,7 @@ export class AnthropicProvider {
   constructor(config = {}) {
     this.baseUrl = config.baseUrl || process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com';
     this.apiKey = config.apiKey || process.env.ANTHROPIC_API_KEY || '';
-    this.model = config.model || process.env.ANTHROPIC_MODEL || 'claude-3-opus-20240229';
+    this.model = config.model || process.env.ANTHROPIC_MODEL || '';
     this.maxRetries = config.maxRetries || 3;
     this.fallbackModel = config.fallbackModel;
   }
@@ -123,7 +123,7 @@ export class AnthropicProvider {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 30000);
 
-        const response = await fetch(`${this.baseUrl}/v1/messages`, {
+        const response = await fetch(`${this.baseUrl.replace(/\/+$/, '').replace(/\/v1$/, '')}/v1/messages`, {
           method: 'POST',
           headers: {
             'x-api-key': apiKey,
