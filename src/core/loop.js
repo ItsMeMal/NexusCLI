@@ -289,7 +289,7 @@ export async function runAgentLoop({
 
       // Prompt-injection mitigation: wrap untrusted external content
       const inj = await import('./injection.js');
-      if (inj.isUntrustedTool(toolName) && !String(toolOutput).startsWith('Error')) {
+      if (inj.isUntrustedTool(toolName, registry) && !String(toolOutput).startsWith('Error')) {
         toolOutput = inj.wrapUntrusted(toolOutput, toolName);
         externalContentRead = true;
       }
