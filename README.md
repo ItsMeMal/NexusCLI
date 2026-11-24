@@ -1,6 +1,6 @@
 # NEXUSCODE
 
-AI orchestrator berbasis terminal yang mengoordinasikan model, tools, MCP servers, plugins, dan specialist agents untuk menyelesaikan pekerjaan lintas domain.
+NexusCode adalah AI orchestrator berbasis terminal yang mengoordinasikan model, tools, MCP servers, plugins, dan specialist agents untuk menyelesaikan pekerjaan lintas domain.
 
 Arsitektur: **Core + Server (HTTP/SSE) + Multi-Client (CLI/TUI)**.
 
@@ -21,7 +21,7 @@ Arsitektur: **Core + Server (HTTP/SSE) + Multi-Client (CLI/TUI)**.
   - Prompt Injection Mitigation: Menandai konten eksternal sebagai data tidak tepercaya, mewajibkan konfirmasi untuk tool berbahaya setelah membaca data eksternal.
   - Audit Log: Semua tool call dicatat ke `.agent/audit.log` (JSON Lines).
   - Git snapshot capture & `/undo`/`/redo` checkpoint stack.
-- **Mode Non-Interaktif (CI-Ready)**: `nexus run "prompt" --json` dengan structured output dan exit code.
+- **Mode Non-Interaktif (CI-Ready)**: `nexuscode run "prompt" --json` dengan structured output dan exit code.
 - **Share Sesi**: Ekspor percakapan ke HTML mandiri via `/export [path]` atau `exportSessionToHTML()`.
 - **VS Code Extension**: Ekstensi minimal di `extensions/vscode/` untuk mengirim prompt/review langsung dari editor.
 - **Extensibility**:
@@ -35,7 +35,7 @@ Arsitektur: **Core + Server (HTTP/SSE) + Multi-Client (CLI/TUI)**.
 ## Struktur Direktori
 
 ```
-NexusCLI/
+NexusCode/
 ├── .agent/
 │   ├── agents/            # Definisi custom subagent (*.md)
 │   ├── commands/          # Custom slash commands (*.md)
@@ -81,30 +81,35 @@ NexusCLI/
 
 ## Instalasi
 
-### Dari NPM / Tarball Lokal
+### Install dari source
 
 ```bash
-# Clone dan install dependensi
-git clone <repo-url>
-cd NexusCLI
-npm install
+git clone https://github.com/ItsMeMal/NexusCode.git
+cd NexusCode
+npm ci
 
-# Test suite
-npm test
-
-# Evaluasi baseline
-npm run eval
+# Jalankan dari source
+npm start
 ```
 
-### Global Install
+### Install dari npm
+
+Setelah paket dipublikasikan ke npm:
 
 ```bash
-npm pack
-npm install -g nexus-cli-0.1.0.tgz
+npm install -g nexuscode-cli
 
-# Jalankan
-nexus
+# Jalankan dari direktori mana pun
+nexuscode
 ```
+
+Tanpa instalasi global:
+
+```bash
+npx nexuscode-cli
+```
+
+Untuk pengembangan lokal, jalankan `npm link` dari root repository agar command `nexuscode` mengarah ke checkout ini.
 
 ---
 
@@ -255,10 +260,10 @@ Untuk integrasi ke CI/CD (GitHub Actions, script):
 
 ```bash
 # Output teks biasa
-nexus run "Tulis fungsi fibonacci di fib.js" --approve
+nexuscode run "Tulis fungsi fibonacci di fib.js" --approve
 
 # Output JSON terstruktur ke stdout (exit code 0 jika sukses, 1 jika gagal)
-nexus run "Review src/cli.js" --json --mode plan > review.json
+nexuscode run "Review src/cli.js" --json --mode plan > review.json
 ```
 
 Format output JSON:

@@ -1,11 +1,11 @@
 {
-  "name": "nexus-cli",
+  "name": "nexuscode-cli",
   "version": "0.1.0",
   "type": "module",
-  "description": "AI orchestration CLI with dynamic providers, specialist agents, MCP and tool coordination",
+  "description": "NexusCode — a general-purpose AI orchestration CLI with dynamic providers, MCP, tools and specialist agents",
   "main": "src/cli.js",
   "bin": {
-    "nexus": "src/cli.js"
+    "nexuscode": "src/cli.js"
   },
   "files": [
     "src/",
@@ -32,5 +32,23 @@
     "pino": "^10.4.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ItsMeMal/NexusCode.git"
+  },
+  "homepage": "https://github.com/ItsMeMal/NexusCode#readme",
+  "bugs": {
+    "url": "https://github.com/ItsMeMal/NexusCode/issues"
+  },
+  "license": "MIT",
+  "keywords": [
+    "nexuscode",
+    "ai",
+    "cli",
+    "agent",
+    "llm",
+    "mcp",
+    "terminal"
+  ]
 }

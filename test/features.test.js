@@ -416,3 +416,17 @@ describe('OpenCode-style provider and model pickers', () => {
     }
   });
 });
+
+
+describe('npm CLI package metadata', () => {
+  test('publishes the nexuscode executable', () => {
+    const manifestPath = new URL('../package.json', import.meta.url);
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+
+    assert.equal(manifest.name, 'nexuscode-cli');
+    assert.equal(manifest.bin?.nexuscode, 'src/cli.js');
+    assert.equal(Object.hasOwn(manifest.bin || {}, 'nexus'), false);
+    assert.ok(manifest.files.includes('src/'));
+    assert.ok(manifest.engines.node.includes('20'));
+  });
+});
