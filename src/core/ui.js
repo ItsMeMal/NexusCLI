@@ -156,7 +156,7 @@ export function renderBanner({ sessionId, mode, model, serverUrl, gitBranch = 'c
     ? `${c.bgYellow}${c.black}${c.bold} PLAN ${c.reset}`
     : `${c.bgGreen}${c.black}${c.bold} BUILD ${c.reset}`;
 
-  const topBrand = `${c.bold}${c.brightWhite}✦ NEXUS CODING AGENT${c.reset} ${c.dim}v0.1.0${c.reset}`;
+  const topBrand = `${c.bold}${c.brightWhite}✦ NEXUS ORCHESTRATOR${c.reset} ${c.dim}v0.1.0${c.reset}`;
   const topStatus = `${c.green}● ONLINE${c.reset} ${modeBadge}`;
   const row1Gap = Math.max(1, innerWidth - stripAnsi(topBrand).length - stripAnsi(topStatus).length);
 
@@ -169,9 +169,9 @@ export function renderBanner({ sessionId, mode, model, serverUrl, gitBranch = 'c
   const infoW = innerWidth - 9;
   const r1Info = `${c.dim}Model:${c.reset} ${c.cyan}${c.bold}${model}${c.reset}   ${c.dim}Git:${c.reset} ${c.magenta} ${gitBranch}${c.reset}   ${c.dim}Endpoint:${c.reset} ${c.slate}${serverUrl.replace(/^http:\/\//, '')}${c.reset}`;
   const r2Info = `${c.dim}Session:${c.reset} ${c.slate}${shortSession}${c.reset}   ${c.dim}Permissions:${c.reset} ${c.amber}Smart Guardrails${c.reset}`;
-  const r3Info = `${c.cyan}${c.bold}NexusAI:${c.reset} ${c.dim}"Siap membantumu coding. Ketik instruksi atau /help~"${c.reset}`;
+  const r3Info = `${c.cyan}${c.bold}NexusAI:${c.reset} ${c.dim}"Aku koordinasikan tools, agents, dan model untuk menyelesaikan tujuanmu."${c.reset}`;
 
-  const hint1 = `${c.dim}Type your prompt to write code • Enter ${c.bold}${c.cyan}/${c.reset}${c.dim} or press ${c.bold}${c.cyan}[Tab]${c.reset}${c.dim} for slash commands${c.reset}`;
+  const hint1 = `${c.dim}Type any task or question • Enter ${c.bold}${c.cyan}/${c.reset}${c.dim} or press ${c.bold}${c.cyan}[Tab]${c.reset}${c.dim} for slash commands${c.reset}`;
 
   console.log(`\n${c.cyan}╭${hr}╮${c.reset}`);
   console.log(`${c.cyan}│${c.reset}  ${topBrand}${' '.repeat(row1Gap)}${topStatus}  ${c.cyan}│${c.reset}`);

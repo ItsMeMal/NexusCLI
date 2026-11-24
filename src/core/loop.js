@@ -32,6 +32,7 @@ export async function runAgentLoop({
   let lastCallSignature = null;
   let consecutiveIdenticalCount = 0;
   let externalContentRead = false;
+  ctx.registry = registry;
   const permissionManager = ctx.permissionManager || PermissionManager.fromConfigFile(ctx.cwd);
   const snapshotManager = ctx.snapshotManager || new SessionSnapshotManager(ctx.cwd);
 
@@ -81,7 +82,7 @@ export async function runAgentLoop({
     messages.push(assistantMessage);
 
       // ✅ TAHAP 8: Context Management - Check if compaction needed after assistant message
-      const model = ctx.model || ctx.session?.model || 'Elaina-Free';
+      const model = ctx.model || ctx.session?.model || '';
       const compactionResult = await compactContextIfNeeded(messages, model, onEvent);
 
       if (compactionResult.compacted) {
@@ -276,7 +277,7 @@ export async function runAgentLoop({
       messages.push(toolMessage);
 
       // ✅ TAHAP 8: Context Management - Check if compaction needed after tool result
-      const model = ctx.model || ctx.session?.model || 'Elaina-Free';
+      const model = ctx.model || ctx.session?.model || '';
       const compactionResult = await compactContextIfNeeded(messages, model, onEvent);
 
       if (compactionResult.compacted) {

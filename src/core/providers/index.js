@@ -72,7 +72,17 @@ export function parseModelConfig(configStr) {
     throw new Error('Model selection must use provider/model, for example openrouter/vendor/model-name.');
   }
 
-  const config = getProviderConfig(providerId);
+  const config = getProviderConfig(providerId) || (
+    providerId === 'openai-compatible' && (process.env.BASE_URL || process.env.OPENAI_BASE_URL)
+      ? {
+          id: 'openai-compatible',
+          baseUrl: process.env.BASE_URL || process.env.OPENAI_BASE_URL,
+          apiKey: process.env.API_KEY || process.env.OPENAI_API_KEY || '',
+          protocol: 'openai-compatible',
+          apiKeyEnv: process.env.API_KEY ? 'API_KEY' : 'OPENAI_API_KEY'
+        }
+      : null
+  );
   if (!config) {
     throw new Error('Unknown provider "' + providerId + '". Use /provider to view configured providers.');
   }
