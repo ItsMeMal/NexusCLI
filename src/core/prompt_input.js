@@ -9,8 +9,10 @@ export const COMMANDS_REGISTRY = [
   { cmd: '/redo', cat: 'Git', desc: 'Re-apply reverted git checkpoint', needsArg: false },
   { cmd: '/checkpoints', cat: 'Git', desc: 'List all git checkpoints captured in session', needsArg: false },
   { cmd: '/checkpoint', cat: 'Git', desc: 'Create manual checkpoint (/checkpoint [label])', needsArg: true },
-  { cmd: '/model', cat: 'Model', desc: 'Discover and select models from configured providers', needsArg: false },
-  { cmd: '/provider', cat: 'Model', desc: 'Select, add, or remove an AI router/provider', needsArg: false },
+  { cmd: '/model', cat: 'Model', desc: 'Search and select a model grouped by provider', needsArg: false },
+  { cmd: '/models', cat: 'Model', desc: 'Alias for /model', needsArg: false },
+  { cmd: '/provider', cat: 'Model', desc: 'Connect or manage AI providers', needsArg: false },
+  { cmd: '/connect', cat: 'Model', desc: 'Alias for /provider — connect an AI provider', needsArg: false },
   { cmd: '/cost', cat: 'Model', desc: 'View token usage stats and estimated cost breakdown', needsArg: false },
   { cmd: '/usage', cat: 'Model', desc: 'Alias for /cost', needsArg: false },
   { cmd: '/compact', cat: 'Model', desc: 'Manually prune and compact conversation context', needsArg: false },
@@ -67,74 +69,139 @@ function buildHintLines(query, matches, tabCycleIdx) {
  * @param {Array<{label: string, desc?: string, active?: boolean}>} options.options
  * @returns {Promise<number>} Indeks opsi terpilih, atau -1 jika batal
  */
-export async function promptSelect({ title, icon = '', options: opts, footer }) {
-  const boxW = 74;
-  const foot = footer || '↑↓ pilih • [Enter] ok • [Esc] batal • ketik nomor';
 
-  const titleText = ` ${icon ? icon + ' ' : ''}${c.bold}${title}${c.reset} `;
-  const titleFill = Math.max(1, boxW - 3 - stripAnsi(titleText).length);
-  const topRow = `${c.cyan}╭─${c.reset}${titleText}${c.dim}${'─'.repeat(titleFill)}${c.reset}${c.cyan}╮${c.reset}`;
-  const bottomRow = `${c.cyan}╰${'─'.repeat(boxW - 2)}╯${c.reset}`;
+export function filterPickerOptions(options, query = '') {
+  const needle = String(query || '').trim().toLowerCase();
+  const entries = (options || []).map((option, index) => ({ option, index }));
+  if (!needle) return entries;
 
-  const optionRow = (o, i, isSel) => {
-    const mark = o.active ? ` ${c.green}${c.bold}◀ aktif${c.reset}` : '';
-    const prefix = isSel ? `${c.bgCyan}${c.black}${c.bold} ❯ ${c.reset}` : '   ';
-    const num = `${c.magenta}${c.bold}[${i + 1}]${c.reset}`;
-    const label = `${c.bold}${o.label}${c.reset}${mark}`;
-    const desc = o.desc ? `  ${c.dim}${o.desc}${c.reset}` : '';
-    return `${c.cyan}│${c.reset}${prefix}${num} ${label}${desc}`;
+  const score = (value) => {
+    const text = String(value || '').toLowerCase();
+    if (text.includes(needle)) return text.indexOf(needle) === 0 ? 3 : 2;
+    let cursor = 0;
+    for (const char of needle) {
+      cursor = text.indexOf(char, cursor);
+      if (cursor < 0) return 0;
+      cursor++;
+    }
+    return 1;
   };
 
-  const renderBlock = (sel) => {
+  return entries
+    .map(entry => ({
+      ...entry,
+      score: Math.max(
+        score(entry.option.label),
+        score(entry.option.desc),
+        score(entry.option.category),
+        score(entry.option.id)
+      )
+    }))
+    .filter(entry => entry.score > 0)
+    .sort((a, b) => b.score - a.score || a.index - b.index);
+}
+
+export async function promptSelect({ title, icon = '', options: opts = [], footer, searchable = false, maxVisible = 10 }) {
+  const boxW = 74;
+  const foot = footer || '↑↓ pilih • [Enter] ok • [Esc] batal • ketik nomor';
+  const titleText = ' ' + (icon ? icon + ' ' : '') + c.bold + title + c.reset + ' ';
+  const titleFill = Math.max(1, boxW - 3 - stripAnsi(titleText).length);
+  const topRow = c.cyan + '╭─' + c.reset + titleText + c.dim + '─'.repeat(titleFill) + c.reset + c.cyan + '╮' + c.reset;
+  const bottomRow = c.cyan + '╰' + '─'.repeat(boxW - 2) + '╯' + c.reset;
+
+  if (!opts.length) return -1;
+
+  const optionRow = (entry, selected) => {
+    const option = entry.option;
+    const active = option.active ? ' ' + c.green + c.bold + '● ACTIVE' + c.reset : '';
+    const connected = option.connected ? ' ' + c.green + '✓ connected' + c.reset : '';
+    const prefix = selected ? c.bgCyan + c.black + c.bold + ' ❯ ' + c.reset : '   ';
+    const number = c.magenta + c.bold + '[' + (entry.index + 1) + ']' + c.reset;
+    const label = c.bold + option.label + c.reset + active + connected;
+    const desc = option.desc ? '  ' + c.dim + option.desc + c.reset : '';
+    return c.cyan + '│' + c.reset + prefix + number + ' ' + label + desc;
+  };
+
+  const allEntries = () => opts.map((option, index) => ({ option, index }));
+  const renderBlock = (entries, cursor, query, scrollStart) => {
     const lines = [topRow];
-    opts.forEach((o, i) => lines.push(optionRow(o, i, i === sel)));
+    if (searchable) {
+      lines.push(c.cyan + '│' + c.reset + '  ' + c.dim + 'Search' + c.reset + ': ' + (query || c.dim + 'type to filter' + c.reset));
+      lines.push(c.cyan + '├' + '─'.repeat(boxW - 2) + '┤' + c.reset);
+    }
+    const visible = entries.slice(scrollStart, scrollStart + maxVisible);
+    let previousCategory = null;
+    visible.forEach((entry, visibleIndex) => {
+      const category = entry.option.category || '';
+      if (category && category !== previousCategory) {
+        lines.push(c.cyan + '│' + c.reset + '  ' + c.bold + c.magenta + category.toUpperCase() + c.reset);
+        previousCategory = category;
+      }
+      lines.push(optionRow(entry, scrollStart + visibleIndex === cursor));
+    });
+    if (!visible.length) lines.push(c.cyan + '│' + c.reset + '  ' + c.dim + 'No matching options.' + c.reset);
+    if (scrollStart > 0) lines.push(c.cyan + '│' + c.reset + '  ' + c.dim + '↑ more results above' + c.reset);
+    if (scrollStart + maxVisible < entries.length) lines.push(c.cyan + '│' + c.reset + '  ' + c.dim + '↓ more results below' + c.reset);
     lines.push(bottomRow);
-    lines.push(`  ${c.dim}${foot}${c.reset}`);
+    lines.push('  ' + c.dim + (searchable ? 'Type to search • ' : '') + foot + c.reset);
     return lines;
   };
 
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
-    // Fallback non-TTY: cetak list, minta input nomor
-    for (const ln of renderBlock(-1)) process.stdout.write(ln + '\n');
+    const entries = allEntries();
+    const lines = renderBlock(entries, -1, '', 0);
+    for (const line of lines) process.stdout.write(line + '\n');
     return new Promise((resolve) => {
       const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-      process.stdout.write(`  ${c.bold}Pilih nomor [1-${opts.length}]${c.reset} ${c.dim}(Enter batal):${c.reset} `);
-      rl.question('', (ans) => {
+      process.stdout.write('  ' + c.bold + 'Pilih nomor [1-' + opts.length + ']' + c.reset + ' ' + c.dim + '(Enter batal):' + c.reset + ' ');
+      rl.question('', (answer) => {
         rl.close();
-        const n = parseInt(ans.trim(), 10);
-        resolve(n >= 1 && n <= opts.length ? n - 1 : -1);
+        const number = Number.parseInt(answer.trim(), 10);
+        resolve(Number.isInteger(number) && number >= 1 && number <= opts.length ? number - 1 : -1);
       });
     });
   }
 
   return new Promise((resolve) => {
-    let sel = opts.findIndex((o) => o.active);
-    if (sel < 0) sel = 0;
+    let query = '';
+    let entries = allEntries();
+    let cursor = Math.max(0, entries.findIndex(entry => entry.option.active));
+    let scrollStart = 0;
     let drawn = 0;
 
-    const drawBlock = (lines) => {
-      const prev = drawn;
-      if (prev > 0) process.stdout.write(`\x1b[${prev - 1}A`);
-      lines.forEach((ln, i) => {
-        process.stdout.write((i === 0 ? '\r\x1b[K' : '\n\x1b[K') + ln);
+    const ensureVisible = () => {
+      if (cursor < scrollStart) scrollStart = cursor;
+      if (cursor >= scrollStart + maxVisible) scrollStart = cursor - maxVisible + 1;
+      scrollStart = Math.max(0, Math.min(scrollStart, Math.max(0, entries.length - maxVisible)));
+    };
+
+    const redraw = () => {
+      ensureVisible();
+      const lines = renderBlock(entries, cursor, query, scrollStart);
+      const previous = drawn;
+      if (previous > 0) process.stdout.write('\x1b[' + (previous - 1) + 'A');
+      lines.forEach((line, index) => {
+        process.stdout.write((index === 0 ? '\r\x1b[K' : '\n\x1b[K') + line);
       });
+      if (previous > lines.length) {
+        for (let index = lines.length; index < previous; index++) process.stdout.write('\n\x1b[K');
+        process.stdout.write('\x1b[' + (previous - lines.length) + 'A');
+      }
       drawn = lines.length;
     };
 
     const finish = (result) => {
       if (drawn > 0) {
-        process.stdout.write(`\x1b[${drawn - 1}A`);
-        for (let i = 0; i < drawn; i++) {
-          process.stdout.write((i === 0 ? '\r' : '\n') + '\x1b[K');
+        process.stdout.write('\x1b[' + (drawn - 1) + 'A');
+        for (let index = 0; index < drawn; index++) {
+          process.stdout.write((index === 0 ? '\r' : '\n') + '\x1b[K');
         }
-        process.stdout.write(`\x1b[${drawn}A\r`);
+        process.stdout.write('\x1b[' + drawn + 'A\r');
         drawn = 0;
       }
       process.stdout.write('\n');
       process.stdin.removeListener('keypress', onKeypress);
-      if (!wasRaw) {
-        process.stdin.setRawMode(false);
-      }
+      if (!wasRaw) process.stdin.setRawMode(false);
       resolve(result);
     };
 
@@ -143,46 +210,141 @@ export async function promptSelect({ title, icon = '', options: opts, footer }) 
     process.stdin.setRawMode(true);
     process.stdin.resume();
 
-    const onKeypress = (str, key) => {
-      if (key && key.ctrl && key.name === 'c') {
+    const updateQuery = (nextQuery) => {
+      query = nextQuery;
+      entries = searchable ? filterPickerOptions(opts, query) : allEntries();
+      const active = entries.findIndex(entry => entry.option.active);
+      cursor = active >= 0 ? active : 0;
+      scrollStart = 0;
+      redraw();
+    };
+
+    const onKeypress = (str, key = {}) => {
+      if (key.ctrl && key.name === 'c') {
         finish(-1);
         process.exit(0);
         return;
       }
-      if (key && key.name === 'escape') {
+      if (key.name === 'escape') {
         finish(-1);
         return;
       }
-      if (key && key.name === 'up') {
-        if (sel > 0) {
-          sel--;
-          drawBlock(renderBlock(sel));
-        }
+      if (key.name === 'up') {
+        if (cursor > 0) { cursor--; redraw(); }
         return;
       }
-      if (key && key.name === 'down') {
-        if (sel < opts.length - 1) {
-          sel++;
-          drawBlock(renderBlock(sel));
-        }
+      if (key.name === 'down') {
+        if (cursor < entries.length - 1) { cursor++; redraw(); }
         return;
       }
-      if (key && (key.name === 'return' || key.name === 'enter')) {
-        finish(sel);
+      if (key.name === 'return' || key.name === 'enter') {
+        finish(entries[cursor]?.index ?? -1);
         return;
       }
-      if (str && /^[0-9]$/.test(str)) {
-        const target = parseInt(str, 10) - 1;
-        if (target >= 0 && target < opts.length) {
-          sel = target;
-          drawBlock(renderBlock(sel));
-        }
+      if (searchable && key.ctrl && key.name === 'u') {
+        updateQuery('');
+        return;
+      }
+      if (searchable && key.name === 'backspace') {
+        updateQuery(query.slice(0, -1));
+        return;
+      }
+      if (!searchable && str && /^[0-9]$/.test(str)) {
+        const target = Number.parseInt(str, 10) - 1;
+        const found = entries.findIndex(entry => entry.index === target);
+        if (found >= 0) { cursor = found; redraw(); }
+        return;
+      }
+      if (searchable && str && !key.ctrl && !key.meta && str.length === 1 && str >= ' ') {
+        updateQuery(query + str);
       }
     };
 
     process.stdin.on('keypress', onKeypress);
-    drawBlock(renderBlock(sel));
+    redraw();
   });
+}
+
+async function promptLine({ message, initialValue = '', mask = false, validate } = {}) {
+  if (mask && (!process.stdin.isTTY || !process.stdout.isTTY)) {
+    throw new Error('Secret input requires an interactive terminal. Use a private environment variable in non-interactive mode.');
+  }
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    return new Promise((resolve) => {
+      const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+      rl.question(message + ': ', (answer) => {
+        rl.close();
+        resolve(answer);
+      });
+    });
+  }
+
+  return new Promise((resolve, reject) => {
+    let value = String(initialValue || '');
+    let drawn = false;
+    readline.emitKeypressEvents(process.stdin);
+    const wasRaw = process.stdin.isRaw;
+    process.stdin.setRawMode(true);
+    process.stdin.resume();
+
+    const render = (error = '') => {
+      const display = mask ? '•'.repeat(value.length) : value;
+      process.stdout.write('\r\x1b[K' + c.cyan + message + c.reset + ': ' + display);
+      if (error) process.stdout.write('\n' + c.yellow + error + c.reset);
+      drawn = true;
+    };
+    const cleanup = () => {
+      process.stdin.removeListener('keypress', onKeypress);
+      if (!wasRaw) process.stdin.setRawMode(false);
+    };
+    const onKeypress = (str, key = {}) => {
+      if (key.ctrl && key.name === 'c') {
+        cleanup();
+        process.stdout.write('\n');
+        reject(new Error('Input cancelled.'));
+        return;
+      }
+      if (key.name === 'escape') {
+        cleanup();
+        process.stdout.write('\n');
+        resolve(null);
+        return;
+      }
+      if (key.name === 'return' || key.name === 'enter') {
+        const error = validate ? validate(value) : undefined;
+        if (error) { render(error); return; }
+        cleanup();
+        process.stdout.write('\n');
+        resolve(value);
+        return;
+      }
+      if (key.name === 'backspace' || key.name === 'delete') {
+        value = value.slice(0, -1);
+        render();
+        return;
+      }
+      if (key.ctrl && key.name === 'u') {
+        value = '';
+        render();
+        return;
+      }
+      if (str && !key.ctrl && !key.meta && str.length === 1 && str >= ' ') {
+        value += str;
+        render();
+      }
+    };
+
+    process.stdin.on('keypress', onKeypress);
+    render();
+  });
+}
+
+export async function promptText(options = {}) {
+  return promptLine(options);
+}
+
+export async function promptSecret(message = 'API key') {
+  return promptLine({ message, mask: true, validate: value => value.trim() ? undefined : 'Required' });
 }
 
 /**

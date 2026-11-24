@@ -4,9 +4,13 @@ import { AnthropicProvider } from './anthropic.js';
 import { GeminiProvider } from './gemini.js';
 import {
   addProvider,
+  addLocalProvider,
+  connectProvider,
+  disconnectProvider,
   getDefaultModelSelection,
   getProviderCatalog,
   getProviderConfig,
+  getProviderPickerCatalog,
   listAllModels,
   listProviderModels,
   removeProvider
@@ -17,9 +21,13 @@ export { AnthropicProvider } from './anthropic.js';
 export { GeminiProvider } from './gemini.js';
 export {
   addProvider,
+  addLocalProvider,
+  connectProvider,
+  disconnectProvider,
   getDefaultModelSelection,
   getProviderCatalog,
   getProviderConfig,
+  getProviderPickerCatalog,
   listAllModels,
   listProviderModels,
   removeProvider
@@ -62,7 +70,7 @@ export function parseModelConfig(configStr) {
     const preferred = providers.find(provider => provider.id === process.env.NEXUS_DEFAULT_PROVIDER);
     const provider = preferred || (providers.length === 1 ? providers[0] : null);
     if (!provider) {
-      throw new Error('No provider selected. Configure one with /provider add or set NEXUS_DEFAULT_PROVIDER.');
+      throw new Error('No provider selected. Configure one with /connect or /provider add, then choose a model with /models.');
     }
     providerId = provider.id;
     model = value || provider.defaultModel;
@@ -84,10 +92,10 @@ export function parseModelConfig(configStr) {
       : null
   );
   if (!config) {
-    throw new Error('Unknown provider "' + providerId + '". Use /provider to view configured providers.');
+    throw new Error('Unknown provider "' + providerId + '". Use /connect to configure a provider.');
   }
   if (!config.apiKey) {
-    throw new Error('Missing API key. Set ' + (config.apiKeyEnv || 'the provider API key') + ' in your local environment.');
+    throw new Error('Missing API key. Connect ' + providerId + ' with /connect or configure its local environment variable.');
   }
 
   return {
@@ -105,7 +113,11 @@ export default {
   loadApiKey,
   parseModelConfig,
   addProvider,
+  addLocalProvider,
+  connectProvider,
+  disconnectProvider,
   getProviderCatalog,
+  getProviderPickerCatalog,
   listAllModels,
   removeProvider
 };

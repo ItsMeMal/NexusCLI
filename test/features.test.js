@@ -229,7 +229,8 @@ describe('UI Module', () => {
 
 import { COMMANDS_REGISTRY } from '../src/core/prompt_input.js';
 import { buildSystemPrompt } from '../src/core/prompt.js';
-import { addProvider, getProviderCatalog, listAllModels, parseModelConfig, removeProvider } from '../src/core/providers/index.js';
+import { addProvider, addLocalProvider, connectProvider, disconnectProvider, getProviderCatalog, getProviderPickerCatalog, listAllModels, parseModelConfig, removeProvider } from '../src/core/providers/index.js';
+import { filterPickerOptions } from '../src/core/prompt_input.js';
 
 describe('Prompt Input Module', () => {
   test('COMMANDS_REGISTRY contains core commands', () => {
@@ -350,6 +351,65 @@ describe('Dynamic provider registry and model discovery', () => {
       else process.env.NEXUS_CONFIG_DIR = previousConfigDir;
       if (previousApiKey === undefined) delete process.env.NEXUS_TEST_ROUTER_KEY;
       else process.env.NEXUS_TEST_ROUTER_KEY = previousApiKey;
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+});
+
+
+describe('OpenCode-style provider and model pickers', () => {
+  test('provider catalog includes searchable presets and marks connected providers', () => {
+    const options = getProviderPickerCatalog();
+    assert.ok(options.some(provider => provider.id === 'openrouter' && provider.category === 'Popular'));
+    assert.ok(options.some(provider => provider.id === 'anthropic' && provider.protocol === 'anthropic'));
+    assert.ok(options.some(provider => provider.id === 'gemini' && provider.protocol === 'gemini'));
+  });
+
+  test('picker search matches labels, model IDs, and provider groups', () => {
+    const options = [
+      { label: 'Claude Sonnet', desc: 'anthropic/claude-sonnet', category: 'Anthropic' },
+      { label: 'DeepSeek V4', desc: 'deepseek/deepseek-v4', category: 'DeepSeek' },
+      { label: 'GPT 5', desc: 'openai/gpt-5', category: 'OpenAI' }
+    ];
+    assert.deepEqual(filterPickerOptions(options, 'deep').map(entry => entry.index), [1]);
+    assert.deepEqual(filterPickerOptions(options, 'anthropic').map(entry => entry.index), [0]);
+    assert.deepEqual(filterPickerOptions(options, 'gpt5').map(entry => entry.index), [2]);
+  });
+
+  test('connect stores credentials separately with restrictive file permissions', () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-auth-store-'));
+    const previousConfigDir = process.env.NEXUS_CONFIG_DIR;
+    const secret = 'local-api-key-never-in-provider-metadata';
+    try {
+      process.env.NEXUS_CONFIG_DIR = tempDir;
+      addLocalProvider({
+        id: 'private-router',
+        label: 'Private Router',
+        baseUrl: 'https://private-gateway.example/v1',
+        apiKey: secret
+      });
+
+      const providerFile = path.join(tempDir, 'providers.json');
+      const authFile = path.join(tempDir, 'auth.json');
+      const providerJson = fs.readFileSync(providerFile, 'utf8');
+      const authJson = fs.readFileSync(authFile, 'utf8');
+      assert.ok(!providerJson.includes(secret), 'provider metadata must not contain the API key');
+      assert.ok(authJson.includes(secret), 'local credential store should contain the API key');
+      if (process.platform !== 'win32') {
+        assert.equal(fs.statSync(providerFile).mode & 0o777, 0o600);
+        assert.equal(fs.statSync(authFile).mode & 0o777, 0o600);
+        assert.equal(fs.statSync(tempDir).mode & 0o777, 0o700);
+      }
+
+      const catalog = getProviderCatalog();
+      assert.equal(catalog.find(provider => provider.id === 'private-router')?.connected, true);
+      assert.equal(connectProvider('private-router', secret).apiKey, secret);
+      assert.equal(disconnectProvider('private-router'), true);
+      assert.equal(getProviderCatalog().find(provider => provider.id === 'private-router')?.connected, false);
+      assert.equal(removeProvider('private-router'), true);
+    } finally {
+      if (previousConfigDir === undefined) delete process.env.NEXUS_CONFIG_DIR;
+      else process.env.NEXUS_CONFIG_DIR = previousConfigDir;
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
   });

@@ -11,7 +11,7 @@ import { getModelConfig } from './core/context.js';
 import { isDockerAvailable } from './core/sandbox.js';
 import { defaultRegistry } from './tools/index.js';
 import { COMMANDS_REGISTRY } from './core/prompt_input.js';
-import { addProvider, getDefaultModelSelection, getProviderCatalog, listAllModels, listProviderModels, removeProvider } from './core/providers/index.js';
+import { addProvider, connectProvider, getDefaultModelSelection, getProviderCatalog, getProviderPickerCatalog, listAllModels, listProviderModels, removeProvider } from './core/providers/index.js';
 
 const createElement = React.createElement;
 
@@ -479,53 +479,76 @@ function CommandPalette({ commands, selectedIndex, scrollOffset, pageSize }) {
   );
 }
 
-function ProviderPalette({ providers, selectedIndex }) {
-  const options = [
-    ...(providers || []).map(provider => ({
-      id: provider.id, label: provider.label, configured: provider.configured,
-      active: provider.active, detail: provider.baseUrl, keyVariable: provider.keyVariable
-    })),
-    { id: '__add__', label: '+ Add provider', configured: true, active: false, detail: 'Register any AI router or gateway' }
-  ];
+function ProviderPalette({ providers, selectedIndex, query = '' }) {
+  const rows = [];
+  let category = null;
+  (providers || []).forEach((provider, index) => {
+    if (provider.category && provider.category !== category) {
+      category = provider.category;
+      rows.push(createElement(Text, { key: 'category-' + category, color: 'magenta', bold: true }, '  ' + category.toUpperCase()));
+    }
+    const selected = index === selectedIndex;
+    rows.push(createElement(Box, { key: provider.id, flexDirection: 'row' },
+      createElement(Text, { color: selected ? 'black' : 'cyan', backgroundColor: selected ? 'magenta' : undefined, bold: selected },
+        (selected ? '❯ ' : '  ') + provider.label.padEnd(24)),
+      createElement(Text, { color: provider.connected ? 'green' : 'yellow' }, provider.connected ? '✓ CONNECTED' : 'CONNECT'),
+      createElement(Spacer),
+      createElement(Text, { color: provider.active ? 'green' : 'gray' }, provider.active ? '● ACTIVE' : ''),
+      createElement(Text, { color: 'gray' }, '  ' + (provider.baseUrl || ''))
+    ));
+  });
+  if (!rows.length) rows.push(createElement(Text, { key: 'empty', color: 'yellow' }, '  No provider matches this search.'));
   return createElement(Box, { flexDirection: 'column', borderStyle: 'round', borderColor: 'magenta', paddingX: 1, marginY: 0 },
     createElement(Box, { flexDirection: 'row' },
-      createElement(Text, { color: 'magenta', bold: true }, '🔌 CONFIGURED PROVIDERS '),
+      createElement(Text, { color: 'magenta', bold: true }, '🔌 CONNECT PROVIDER '),
       createElement(Spacer),
-      createElement(Text, { color: 'gray', dimColor: true }, '↑/↓ pilih • Enter lanjut • Esc tutup')
+      createElement(Text, { color: 'gray', dimColor: true }, '↑/↓ • type to search • Enter connect • Esc close')
     ),
-    ...options.map((provider, index) => {
-      const selected = index === selectedIndex;
-      return createElement(Box, { key: provider.id, flexDirection: 'row' },
-        createElement(Text, { color: selected ? 'black' : 'cyan', backgroundColor: selected ? 'magenta' : undefined, bold: selected },
-          (selected ? '❯ ' : '  ') + provider.label.padEnd(24)),
-        createElement(Text, { color: provider.configured ? 'green' : 'yellow' },
-          provider.id === '__add__' ? 'NEW' : (provider.configured ? 'KEY READY' : 'MISSING KEY')),
-        createElement(Spacer),
-        createElement(Text, { color: provider.active ? 'green' : 'gray' }, provider.active ? '● ACTIVE' : ''),
-        createElement(Text, { color: 'gray' }, '  ' + (provider.detail || ''))
-      );
-    }),
-    createElement(Text, { color: 'gray', dimColor: true }, '  Add: /provider add <id> <base_url> <api_key_env> [default_model|-] [label...]')
+    createElement(Text, { color: 'gray' }, '  Search: ' + (query || 'all supported providers')),
+    ...rows,
+    createElement(Text, { color: 'gray', dimColor: true }, '  Custom endpoints: /provider add <id> <base_url> <api_key_env> - <label>')
   );
 }
 
-function ModelPalette({ models, selectedIndex }) {
-  if (!models || models.length === 0) return null;
+function ModelPalette({ models, selectedIndex, query = '', activeModel = '' }) {
+  const maxItems = 9;
+  const start = Math.max(0, Math.min(Math.max(0, models.length - maxItems), selectedIndex - 3));
+  const visible = (models || []).slice(start, start + maxItems);
+  const rows = [];
+  let provider = null;
+  visible.forEach((model, visibleIndex) => {
+    if (model.providerLabel !== provider) {
+      provider = model.providerLabel;
+      rows.push(createElement(Text, { key: 'provider-' + provider, color: 'magenta', bold: true }, '  ' + provider.toUpperCase()));
+    }
+    const index = start + visibleIndex;
+    const selected = index === selectedIndex;
+    rows.push(createElement(Box, { key: model.id, flexDirection: 'row' },
+      createElement(Text, { color: selected ? 'black' : 'cyan', backgroundColor: selected ? 'cyan' : undefined, bold: selected },
+        (selected ? '❯ ' : '  ') + model.model),
+      createElement(Spacer),
+      createElement(Text, { color: model.id === activeModel ? 'green' : 'gray' }, model.id === activeModel ? '● ACTIVE' : model.id)
+    ));
+  });
+  if (!visible.length) rows.push(createElement(Text, { key: 'empty', color: 'yellow' }, '  No models match this search.'));
   return createElement(Box, { flexDirection: 'column', borderStyle: 'round', borderColor: 'cyan', paddingX: 1, marginY: 0 },
     createElement(Box, { flexDirection: 'row' },
-      createElement(Text, { color: 'cyan', bold: true }, '◈ AVAILABLE MODELS '),
+      createElement(Text, { color: 'cyan', bold: true }, '◈ SELECT MODEL '),
       createElement(Spacer),
-      createElement(Text, { color: 'gray', dimColor: true }, '↑/↓ pilih • Enter gunakan • Esc tutup')
+      createElement(Text, { color: 'gray', dimColor: true }, '↑/↓ • type to search • Enter select • Esc close')
     ),
-    ...models.map((model, index) => {
-      const selected = index === selectedIndex;
-      return createElement(Box, { key: model.id, flexDirection: 'row' },
-        createElement(Text, { color: selected ? 'black' : 'cyan', backgroundColor: selected ? 'cyan' : undefined, bold: selected },
-          (selected ? '❯ ' : '  ') + model.model),
-        createElement(Spacer),
-        createElement(Text, { color: 'gray' }, model.providerLabel + '  ' + model.id)
-      );
-    })
+    createElement(Text, { color: 'gray' }, '  Search: ' + (query || 'all connected models')),
+    start > 0 ? createElement(Text, { color: 'gray', dimColor: true }, '  … more models above') : null,
+    ...rows,
+    start + maxItems < models.length ? createElement(Text, { color: 'gray', dimColor: true }, '  … more models below') : null
+  );
+}
+
+function ProviderSecretPrompt({ provider, value }) {
+  return createElement(Box, { flexDirection: 'column', borderStyle: 'round', borderColor: 'yellow', paddingX: 1, marginY: 0 },
+    createElement(Text, { color: 'yellow', bold: true }, (provider.connected ? 'UPDATE ' : 'CONNECT ') + provider.label.toUpperCase()),
+    createElement(Text, { color: 'white' }, 'API key: ' + '•'.repeat(value.length)),
+    createElement(Text, { color: 'gray', dimColor: true }, 'Enter save securely • Backspace edit • Esc cancel. Input is masked.')
   );
 }
 
@@ -566,8 +589,12 @@ function NexusTUIApp({ client, snapshotManager }) {
   const [scrollOffset, setScrollOffset] = useState(0);
   const [providerPickerOpen, setProviderPickerOpen] = useState(false);
   const [selectedProviderIndex, setSelectedProviderIndex] = useState(0);
+  const [providerQuery, setProviderQuery] = useState('');
+  const [providerKeyPrompt, setProviderKeyPrompt] = useState(null);
+  const [providerSecret, setProviderSecret] = useState('');
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [modelOptions, setModelOptions] = useState([]);
+  const [modelQuery, setModelQuery] = useState('');
   const [selectedModelIndex, setSelectedModelIndex] = useState(0);
   const [tokenUsage, setTokenUsage] = useState(0);
   const [gitBranch, setGitBranch] = useState('');
@@ -585,10 +612,15 @@ function NexusTUIApp({ client, snapshotManager }) {
 
   // Filter command suggestions based on current input
   const isSlashActive = input.startsWith('/');
+  const enteredCommand = input.trim().toLowerCase().split(/\s+/, 1)[0];
+  const exactCommand = ALL_COMMANDS.find(command => command.cmd.toLowerCase() === enteredCommand);
   const filteredCommands = isSlashActive
-    ? ALL_COMMANDS.filter(c => c.cmd.toLowerCase().startsWith(input.trim().toLowerCase().split(' ')[0]))
+    ? (exactCommand ? [exactCommand] : ALL_COMMANDS.filter(command => command.cmd.toLowerCase().startsWith(enteredCommand)))
     : [];
-  const providerOptions = getProviderCatalog(session?.model);
+  const providerOptions = getProviderPickerCatalog(session?.model);
+  const providerItems = [...providerOptions, { id: '__custom__', label: 'Custom OpenAI-compatible endpoint', category: 'Custom', connected: false, active: false, baseUrl: 'Register another API-compatible gateway' }];
+  const filteredProviderOptions = providerItems.filter(provider => !providerQuery || (provider.label + ' ' + provider.id + ' ' + provider.category + ' ' + provider.baseUrl).toLowerCase().includes(providerQuery.toLowerCase()));
+  const filteredModelOptions = modelOptions.filter(model => !modelQuery || (model.model + ' ' + model.id + ' ' + model.providerLabel).toLowerCase().includes(modelQuery.toLowerCase()));
   const commandPageSize = input.trim() === '/' ? filteredCommands.length : PAGE_SIZE;
 
   // Reset scroll and selection index if query changes
@@ -691,8 +723,9 @@ function NexusTUIApp({ client, snapshotManager }) {
       return;
     }
 
-    if (trimmed === '/provider') {
-      const activeIndex = providerOptions.findIndex(provider => provider.active);
+    if (trimmed === '/provider' || trimmed === '/connect') {
+      const activeIndex = providerItems.findIndex(provider => provider.active);
+      setProviderQuery('');
       setSelectedProviderIndex(activeIndex >= 0 ? activeIndex : 0);
       setProviderPickerOpen(true);
       return;
@@ -730,18 +763,19 @@ function NexusTUIApp({ client, snapshotManager }) {
       return;
     }
 
-    if (trimmed === '/model' || trimmed === '/model list') {
-      setAgentStatus({ state: 'thinking', text: 'Discovering models from configured providers...' });
+    if (trimmed === '/model' || trimmed === '/model list' || trimmed === '/models') {
+      setAgentStatus({ state: 'thinking', text: 'Loading models from connected providers...' });
       try {
         const catalog = await listAllModels();
         setModelOptions(catalog.models);
+        setModelQuery('');
         setSelectedModelIndex(Math.max(0, catalog.models.findIndex(model => model.id === session?.model)));
         if (catalog.models.length) {
           setModelPickerOpen(true);
         } else {
           const errorText = catalog.errors.map(item => item.providerId + ': ' + item.error).join('\n');
           setMessages(prev => [...prev, { role: 'assistant', content:
-            'Belum ada model yang berhasil ditemukan. Periksa API key dan endpoint provider.' +
+            'Belum ada model yang tersedia. Hubungkan provider dengan /connect terlebih dahulu.' +
             (errorText ? '\n' + errorText : '')
           }]);
         }
@@ -1094,13 +1128,63 @@ function NexusTUIApp({ client, snapshotManager }) {
       return;
     }
 
-    // Model picker keyboard navigation.
-    if (modelPickerOpen) {
-      if (key.escape) { setModelPickerOpen(false); return; }
-      if (key.upArrow) { setSelectedModelIndex(index => Math.max(0, index - 1)); return; }
-      if (key.downArrow) { setSelectedModelIndex(index => Math.min(modelOptions.length - 1, index + 1)); return; }
+    // Masked provider credential entry.
+    if (providerKeyPrompt) {
+      if (key.escape) {
+        setProviderKeyPrompt(null);
+        setProviderSecret('');
+        return;
+      }
       if (key.return) {
-        const model = modelOptions[selectedModelIndex];
+        const secret = providerSecret.trim();
+        if (!secret) return;
+        const target = providerKeyPrompt;
+        setAgentStatus({ state: 'thinking', text: 'Saving provider credentials...' });
+        try {
+          connectProvider(target.id, secret);
+        } catch (error) {
+          setProviderSecret('');
+          setProviderKeyPrompt(null);
+          setAgentStatus({ state: 'idle', text: '' });
+          setMessages(prev => [...prev, { role: 'assistant', content: 'Provider connection failed: ' + error.message }]);
+          return;
+        }
+        setProviderSecret('');
+        setProviderKeyPrompt(null);
+        listProviderModels(target.id).then(models => {
+          setMessages(prev => [...prev, { role: 'assistant', content:
+            'Connected: ' + target.label + '. ' + models.length + ' models discovered. Use /models to select one.'
+          }]);
+        }).catch(error => {
+          setMessages(prev => [...prev, { role: 'assistant', content:
+            'Credential saved for ' + target.label + '. Model discovery returned: ' + error.message + '. Try /models.'
+          }]);
+        }).finally(() => setAgentStatus({ state: 'idle', text: '' }));
+        return;
+      }
+      if (key.backspace || key.delete) {
+        setProviderSecret(value => value.slice(0, -1));
+        return;
+      }
+      if (key.ctrl && (inputChar || '').toLowerCase() === 'u') {
+        setProviderSecret('');
+        return;
+      }
+      if (inputChar && !key.ctrl && !key.meta && inputChar >= ' ') {
+        setProviderSecret(value => value + inputChar);
+      }
+      return;
+    }
+
+    // Searchable model picker, grouped by provider.
+    if (modelPickerOpen) {
+      if (key.escape) { setModelPickerOpen(false); setModelQuery(''); return; }
+      if (key.upArrow) { setSelectedModelIndex(index => Math.max(0, index - 1)); return; }
+      if (key.downArrow) { setSelectedModelIndex(index => Math.min(filteredModelOptions.length - 1, index + 1)); return; }
+      if (key.backspace || key.delete) { setModelQuery(value => value.slice(0, -1)); setSelectedModelIndex(0); return; }
+      if (key.ctrl && (inputChar || '').toLowerCase() === 'u') { setModelQuery(''); setSelectedModelIndex(0); return; }
+      if (key.return) {
+        const model = filteredModelOptions[selectedModelIndex];
         if (!model) return;
         client.updateSessionSettings({ model: model.id }).then(updated => {
           setSession(current => ({ ...current, ...updated }));
@@ -1109,57 +1193,43 @@ function NexusTUIApp({ client, snapshotManager }) {
           setMessages(prev => [...prev, { role: 'assistant', content: 'Gagal mengganti model: ' + error.message }]);
         });
         setModelPickerOpen(false);
+        setModelQuery('');
         setInput('');
         return;
+      }
+      if (inputChar && !key.ctrl && !key.meta && inputChar >= ' ') {
+        setModelQuery(value => value + inputChar);
+        setSelectedModelIndex(0);
       }
       return;
     }
 
-    // Provider picker keyboard navigation.
+    // Searchable provider connection picker.
     if (providerPickerOpen) {
-      if (key.escape) { setProviderPickerOpen(false); return; }
-      const providerCount = providerOptions.length + 1;
+      if (key.escape) { setProviderPickerOpen(false); setProviderQuery(''); return; }
       if (key.upArrow) { setSelectedProviderIndex(index => Math.max(0, index - 1)); return; }
-      if (key.downArrow) { setSelectedProviderIndex(index => Math.min(providerCount - 1, index + 1)); return; }
+      if (key.downArrow) { setSelectedProviderIndex(index => Math.min(filteredProviderOptions.length - 1, index + 1)); return; }
+      if (key.backspace || key.delete) { setProviderQuery(value => value.slice(0, -1)); setSelectedProviderIndex(0); return; }
+      if (key.ctrl && (inputChar || '').toLowerCase() === 'u') { setProviderQuery(''); setSelectedProviderIndex(0); return; }
       if (key.return) {
-        if (selectedProviderIndex === providerOptions.length) {
-          setProviderPickerOpen(false);
-          setMessages(prev => [...prev, { role: 'assistant', content:
-            'Tambahkan provider dengan:\n/provider add <id> <base_url> <api_key_env> [default_model|-] [label...]\n' +
-            'Contoh: /provider add openrouter https://openrouter.ai/api/v1 OPENROUTER_API_KEY - OpenRouter'
-          }]);
-          return;
-        }
-        const provider = providerOptions[selectedProviderIndex];
+        const provider = filteredProviderOptions[selectedProviderIndex];
         if (!provider) return;
-        if (!provider.configured) {
+        setProviderPickerOpen(false);
+        setProviderQuery('');
+        if (provider.id === '__custom__') {
           setMessages(prev => [...prev, { role: 'assistant', content:
-            'API key belum ditemukan. Set ' + provider.keyVariable + ' pada environment pribadi, lalu coba lagi.'
+            'Untuk provider custom gunakan: /provider add <id> <base_url> <api_key_env> - <label>.\n' +
+            'Simpan API key pada environment pribadi, lalu pilih /provider lagi.'
           }]);
           return;
         }
-        setAgentStatus({ state: 'thinking', text: 'Loading provider models...' });
-        listProviderModels(provider.id).then(models => {
-          if (models.length) {
-            setModelOptions(models);
-            setSelectedModelIndex(Math.max(0, models.findIndex(model => model.id === session?.model)));
-            setModelPickerOpen(true);
-          } else if (provider.defaultModel) {
-            const selectedModel = provider.id + '/' + provider.defaultModel;
-            return client.updateSessionSettings({ model: selectedModel }).then(updated => {
-              setSession(current => ({ ...current, ...updated }));
-              setMessages(prev => [...prev, { role: 'assistant', content: 'Provider aktif: ' + selectedModel }]);
-            });
-          } else {
-            setMessages(prev => [...prev, { role: 'assistant', content:
-              'Endpoint ' + provider.baseUrl + ' tidak mengembalikan model.'
-            }]);
-          }
-        }).catch(error => {
-          setMessages(prev => [...prev, { role: 'assistant', content: 'Gagal memuat model: ' + error.message }]);
-        }).finally(() => setAgentStatus({ state: 'idle', text: '' }));
-        setProviderPickerOpen(false);
+        setProviderSecret('');
+        setProviderKeyPrompt(provider);
         return;
+      }
+      if (inputChar && !key.ctrl && !key.meta && inputChar >= ' ') {
+        setProviderQuery(value => value + inputChar);
+        setSelectedProviderIndex(0);
       }
       return;
     }
@@ -1291,12 +1361,14 @@ function NexusTUIApp({ client, snapshotManager }) {
         })
       : null,
     providerPickerOpen
-      ? createElement(ProviderPalette, { providers: providerOptions, selectedIndex: selectedProviderIndex })
+      ? createElement(ProviderPalette, { providers: filteredProviderOptions, selectedIndex: selectedProviderIndex, query: providerQuery })
       : null,
     modelPickerOpen
-      ? createElement(ModelPalette, { models: modelOptions, selectedIndex: selectedModelIndex })
+      ? createElement(ModelPalette, { models: filteredModelOptions, selectedIndex: selectedModelIndex, query: modelQuery, activeModel: session?.model })
       : null,
-    createElement(InputBox, { input, mode: session?.mode || 'build', isBusy }),
+    providerKeyPrompt
+      ? createElement(ProviderSecretPrompt, { provider: providerKeyPrompt, value: providerSecret })
+      : createElement(InputBox, { input, mode: session?.mode || 'build', isBusy }),
     createElement(FooterBar)
   );
 }

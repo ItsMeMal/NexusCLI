@@ -24,8 +24,8 @@ import {
   renderCostReport,
   renderSecurityPrompt
 } from './core/ui.js';
-import { promptWithAutocomplete, promptSelect, COMMANDS_REGISTRY } from './core/prompt_input.js';
-import { addProvider, getDefaultModelSelection, getProviderCatalog, listAllModels, listProviderModels, removeProvider } from './core/providers/index.js';
+import { promptWithAutocomplete, promptSelect, promptText, promptSecret, COMMANDS_REGISTRY } from './core/prompt_input.js';
+import { addProvider, addLocalProvider, connectProvider, disconnectProvider, getDefaultModelSelection, getProviderCatalog, getProviderPickerCatalog, listAllModels, listProviderModels, removeProvider } from './core/providers/index.js';
 
 function loadEnv() {
   const envPath = path.resolve(process.cwd(), '.env');
@@ -547,33 +547,36 @@ async function runInteractive(parsed) {
       continue;
     }
 
-    // Model discovery and selection across every configured provider.
-    if (trimmed === '/model' || trimmed === '/model list') {
-      spinner.start('Discovering configured provider models...');
+    // OpenCode-style model picker: searchable model catalog grouped by provider.
+    if (trimmed === '/model' || trimmed === '/model list' || trimmed === '/models') {
+      spinner.start('Loading models from connected providers...');
       try {
         const catalog = await listAllModels();
         spinner.stop(true);
         if (!catalog.models.length) {
           const errors = catalog.errors.map(item => item.providerId + ': ' + item.error).join('\n');
-          console.log('\n  No models were discovered. Check provider credentials and /provider configuration.');
+          console.log('\n  No models available yet. Connect a provider with /connect or /provider first.');
           if (errors) console.log('  ' + errors);
           console.log('');
           continue;
         }
         const selected = await promptSelect({
-          title: 'AVAILABLE MODELS',
+          title: 'SELECT MODEL',
           icon: '◈',
+          searchable: true,
+          maxVisible: 12,
           options: catalog.models.map(model => ({
             label: model.model,
-            desc: model.providerLabel + ' • ' + model.id,
+            desc: model.id,
+            category: model.providerLabel,
             active: model.id === client.sessionData.model
           })),
-          footer: '↑↓ pilih • [Enter] gunakan model • [Esc] batal'
+          footer: '↑↓ navigate • Enter select • Esc cancel'
         });
         if (selected >= 0) {
           const model = catalog.models[selected];
           await client.updateSessionSettings({ model: model.id });
-          console.log('\n  Model aktif: ' + c.cyan + model.id + c.reset + '\n');
+          console.log('\n  Active model: ' + c.cyan + model.id + c.reset + '\n');
         }
       } catch (err) {
         spinner.fail('Model discovery failed: ' + err.message);
@@ -630,7 +633,7 @@ async function runInteractive(parsed) {
     if (trimmed === '/provider list') {
       const providers = getProviderCatalog(client.sessionData.model);
       if (!providers.length) {
-        console.log('\n  No providers configured. Add one with /provider add.\n');
+        console.log('\n  No connected providers. Run /connect to connect one.\n');
       } else {
         console.log('\n  CONFIGURED PROVIDERS');
         for (const provider of providers) {
@@ -644,63 +647,110 @@ async function runInteractive(parsed) {
       continue;
     }
 
-    if (trimmed === '/provider') {
-      const providers = getProviderCatalog(client.sessionData.model);
+    // Provider connection picker. Credentials are entered masked and stored outside the repository.
+    if (trimmed === '/provider' || trimmed === '/connect') {
+      const providers = getProviderPickerCatalog(client.sessionData.model);
+      const options = [
+        ...providers.map(provider => ({
+          label: provider.label,
+          desc: provider.baseUrl,
+          category: provider.category,
+          connected: provider.connected,
+          active: provider.active,
+          id: provider.id
+        })),
+        { id: '__custom__', label: 'Custom OpenAI-compatible provider', desc: 'Connect a compatible API endpoint', category: 'Custom' }
+      ];
       const selectedIndex = await promptSelect({
-        title: 'CONFIGURED PROVIDERS',
+        title: 'CONNECT PROVIDER',
         icon: '🔌',
-        options: [
-          ...providers.map(provider => ({
-            label: provider.label + ' (' + provider.id + ')',
-            desc: (provider.configured ? 'API key ready' : 'missing ' + provider.keyVariable) + ' • ' + provider.baseUrl,
-            active: provider.active
-          })),
-          { label: '+ Add provider', desc: 'Register any OpenAI-compatible router or gateway' }
-        ],
-        footer: '↑↓ pilih • [Enter] pilih • [Esc] batal'
+        options,
+        searchable: true,
+        maxVisible: 12,
+        footer: '↑↓ navigate • type to search • Enter connect • Esc cancel'
       });
       if (selectedIndex < 0) continue;
-      if (selectedIndex === providers.length) {
-        console.log('\n  /provider add <id> <base_url> <api_key_env> [default_model|-] [label...]');
-        console.log('  Example: /provider add openrouter https://openrouter.ai/api/v1 OPENROUTER_API_KEY - OpenRouter\n');
-        continue;
-      }
+      const selectedProvider = options[selectedIndex];
 
-      const provider = providers[selectedIndex];
-      if (!provider.configured) {
-        console.log('\n  Missing API key. Set ' + provider.keyVariable + ' in your private environment, then retry.\n');
-        continue;
-      }
-
-      spinner.start('Discovering models from ' + provider.label + '...');
-      const catalog = await listProviderModels(provider.id).then(models => ({ models, error: null }))
-        .catch(error => ({ models: [], error }));
-      spinner.stop(true);
-      if (!catalog.models.length) {
-        if (provider.defaultModel) {
-          await client.updateSessionSettings({ model: provider.id + '/' + provider.defaultModel });
-          console.log('\n  Provider aktif: ' + provider.label + ' • ' + provider.defaultModel + '\n');
-        } else {
-          console.log('\n  No models returned by ' + provider.label + '. ' +
-            (catalog.error?.message || 'Set a default model with /provider add.') + '\n');
+      if (selectedProvider.id === '__custom__') {
+        const id = await promptText({
+          message: 'Provider ID',
+          validate: value => /^[a-z0-9][a-z0-9_-]{0,47}$/i.test(value.trim()) ? undefined : 'Use letters, numbers, - or _'
+        });
+        if (!id) continue;
+        const label = await promptText({ message: 'Provider name', initialValue: id });
+        if (label === null) continue;
+        const baseUrl = await promptText({
+          message: 'API base URL',
+          validate: value => {
+            try {
+              const url = new URL(value.trim());
+              return ['https:', 'http:'].includes(url.protocol) ? undefined : 'Use an HTTP or HTTPS URL';
+            } catch { return 'Enter a valid URL'; }
+          }
+        });
+        if (!baseUrl) continue;
+        let apiKey;
+        try { apiKey = await promptSecret('API key'); }
+        catch (error) { console.log('\n  ' + c.yellow + error.message + c.reset + '\n'); continue; }
+        if (apiKey === null) continue;
+        try {
+          const provider = addLocalProvider({ id, label: label || id, baseUrl, apiKey });
+          let count = 0;
+          try { count = (await listProviderModels(provider.id)).length; } catch {}
+          console.log('\n  Credential saved: ' + c.green + provider.label + c.reset);
+          console.log('  ' + (count ? count + ' models discovered. Use /models to choose one.' : 'Use /models to discover available models.') + '\n');
+        } catch (error) {
+          console.log('\n  ' + c.red + 'Provider connection failed: ' + error.message + c.reset + '\n');
         }
         continue;
       }
 
-      const modelIndex = await promptSelect({
-        title: provider.label.toUpperCase() + ' MODELS',
-        icon: '◈',
-        options: catalog.models.map(model => ({
-          label: model.model,
-          desc: model.id,
-          active: model.id === client.sessionData.model
-        })),
-        footer: '↑↓ pilih • [Enter] gunakan model • [Esc] batal'
-      });
-      if (modelIndex >= 0) {
-        const model = catalog.models[modelIndex];
-        await client.updateSessionSettings({ model: model.id });
-        console.log('\n  Provider/model aktif: ' + c.cyan + model.id + c.reset + '\n');
+      const provider = providers.find(item => item.id === selectedProvider.id);
+      if (!provider) continue;
+      if (provider.connected) {
+        const action = await promptSelect({
+          title: provider.label.toUpperCase(),
+          options: [
+            { label: 'Keep current connection', desc: 'Use the saved credentials', active: true },
+            { label: 'Update API key', desc: 'Replace the saved API key' },
+            { label: 'Disconnect', desc: 'Remove locally saved credentials' }
+          ],
+          footer: '↑↓ navigate • Enter confirm • Esc cancel'
+        });
+        if (action < 0 || action === 0) {
+          console.log('\n  ' + provider.label + ' is already connected. Use /models to select a model.\n');
+          continue;
+        }
+        if (action === 2) {
+          const removed = disconnectProvider(provider.id);
+          console.log(removed
+            ? '\n  Disconnected ' + provider.label + '.\n'
+            : '\n  No locally stored credential to remove. Environment credentials remain active.\n');
+          continue;
+        }
+      }
+
+      let apiKey;
+      try { apiKey = await promptSecret(provider.label + ' API key'); }
+      catch (error) { console.log('\n  ' + c.yellow + error.message + c.reset + '\n'); continue; }
+      if (apiKey === null) continue;
+      try {
+        connectProvider(provider.id, apiKey);
+        let count = 0;
+        let discoveryError = '';
+        try { count = (await listProviderModels(provider.id)).length; }
+        catch (error) { discoveryError = error.message; }
+        if (count) {
+          console.log('\n  Connected: ' + c.green + provider.label + c.reset);
+          console.log('  ' + count + ' models available. Run /models to choose one.');
+        } else {
+          console.log('\n  Credential saved for ' + c.cyan + provider.label + c.reset + '.');
+          console.log('  Model discovery: ' + (discoveryError || 'No models returned') + '. You can still try /models.');
+        }
+        console.log('');
+      } catch (error) {
+        console.log('\n  ' + c.red + 'Provider connection failed: ' + error.message + c.reset + '\n');
       }
       continue;
     }

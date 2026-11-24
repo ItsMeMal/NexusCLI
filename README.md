@@ -13,7 +13,7 @@ Arsitektur: **Core + Server (HTTP/SSE) + Multi-Client (CLI/TUI)**.
 
 - **10 Core Tools**: `read_file`, `write_file`, `edit_file`, `bash`, `grep` (ripgrep fallback), `glob`, `todo`, `webfetch`, `repo_map`, `task`.
 - **Client/Server Architecture**: REST API + Server-Sent Events (SSE) streaming.
-- **Dynamic Provider Registry**: OpenAI-compatible gateways/routers, Anthropic, Gemini. Model discovery otomatis melalui endpoint `/models` atau native model catalog. Provider metadata disimpan lokal di `~/.nexuscli/providers.json`; API key hanya dibaca dari environment variable.
+- **Provider & Model Picker**: Katalog provider yang bisa dicari, status koneksi, koneksi API key dengan input tersembunyi, dan daftar model yang dikelompokkan per provider. Mendukung OpenAI-compatible gateways/routers, Anthropic, dan Gemini. Metadata provider disimpan di `~/.nexuscli/providers.json`, sedangkan credential lokal dipisah ke `~/.nexuscli/auth.json` dengan permission terbatas; environment variable tetap didukung.
 - **Context Management**: Token estimation, auto-compaction saat >80% batas model, output pruning.
 - **Security & Hardening**:
   - Sandboxing: Docker mount read-write `/workspace` tanpa network (jika tersedia).
@@ -130,19 +130,27 @@ LOG_LEVEL=info
 DEBUG=0
 ```
 
-### Format Model `provider/model`
+### Connect Provider & Pilih Model
 
-Model dari semua provider yang sudah dikonfigurasi akan ditemukan otomatis:
 ```
-/provider                   # daftar provider + pilih model provider
-/model                      # tampilkan semua model dari seluruh provider
+/connect                    # buka katalog provider yang bisa dicari
+/provider                   # alias untuk /connect
+/models                     # cari model, dikelompokkan berdasarkan provider
+/model                      # alias untuk /models
 /model openrouter/model-id  # pilih model secara langsung
-/provider list
-/provider add openrouter https://openrouter.ai/api/v1 OPENROUTER_API_KEY - OpenRouter
-/provider remove openrouter
+/provider list              # lihat provider yang telah terdaftar
+/provider remove openrouter # hapus provider lokal dan credential lokal
 ```
 
-Perintah `/provider add` hanya menyimpan URL, nama provider, dan nama environment variable ke `~/.nexuscli/providers.json`. Simpan API key sendiri di `.env` lokal atau environment shell. Jangan commit credential ke Git.
+Pilih provider dari katalog, lalu masukkan API key melalui prompt tersembunyi. Credential dari alur koneksi disimpan terpisah di `~/.nexuscli/auth.json` (permission file `0600`, direktori `0700` pada sistem yang mendukungnya), bukan di repository. Provider khusus juga bisa ditambahkan melalui opsi **Custom OpenAI-compatible provider**.
+
+Konfigurasi environment lama tetap didukung. Contoh `/provider add` masih tersedia untuk mendaftarkan endpoint dan referensi environment variable:
+
+```
+/provider add my-router https://gateway.example/v1 MY_ROUTER_API_KEY - My Router
+```
+
+Simpan API key di `.env` lokal atau environment shell dan jangan commit credential ke Git. Model dipilih dengan format `provider/model-id` dan ditemukan dari endpoint model provider yang sesuai.
 
 ---
 
@@ -305,9 +313,10 @@ Ketik `/` untuk melihat seluruh command beserta deskripsinya. Gunakan tombol pan
 |---|---|---|
 | **Modes** | `/plan` | Mode read-only (eksekusi file modification diblokir) |
 | | `/build` | Mode default (eksekusi penuh: write, edit, bash) |
-| **Provider & Model** | `/provider` | Kelola dan pilih provider/router yang sudah dikonfigurasi |
-| | `/model` | Tampilkan model gabungan dari seluruh provider |
+| **Provider & Model** | `/connect` / `/provider` | Cari katalog dan hubungkan provider |
+| | `/models` / `/model` | Cari model dari provider yang terhubung, dikelompokkan per provider |
 | | `/model <provider/model>` | Ganti model aktif secara langsung |
+| | `/provider list` | Tampilkan daftar provider yang terdaftar |
 | **Model & Context** | `/compact` | Ringkas riwayat percakapan secara manual untuk menghemat token |
 | | `/compact` | Ringkas riwayat percakapan secara manual untuk menghemat token |
 | | `/cost` / `/usage` | Laporan konsumsi token dan estimasi biaya per sesi |
