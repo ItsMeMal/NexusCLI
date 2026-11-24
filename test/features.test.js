@@ -229,7 +229,8 @@ describe('UI Module', () => {
 
 import { COMMANDS_REGISTRY } from '../src/core/prompt_input.js';
 import { buildSystemPrompt } from '../src/core/prompt.js';
-import { addProvider, addLocalProvider, connectProvider, disconnectProvider, getProviderCatalog, getProviderPickerCatalog, listAllModels, parseModelConfig, removeProvider } from '../src/core/providers/index.js';
+import { addProvider, addLocalProvider, connectProvider, disconnectProvider, getProviderCatalog, getProviderPickerCatalog, listAllModels, parseModelConfig, removeProvider, saveOAuthCredential, getOAuthCredential, clearOAuthCredential } from '../src/core/providers/index.js';
+import { getOAuthAccessToken } from '../src/core/providers/oauth.js';
 import { filterPickerOptions } from '../src/core/prompt_input.js';
 
 describe('Prompt Input Module', () => {
@@ -365,6 +366,7 @@ describe('OpenCode-style provider and model pickers', () => {
     assert.ok(options.some(provider => provider.id === 'openrouter' && provider.category === 'Popular'));
     assert.ok(options.some(provider => provider.id === 'anthropic' && provider.protocol === 'anthropic'));
     assert.ok(options.some(provider => provider.id === 'gemini' && provider.protocol === 'gemini'));
+    assert.ok(options.some(provider => provider.id === 'mallss-nexus-route' && provider.authFlow === 'oauth2' && provider.category === 'AI Gateways'));
   });
 
   test('picker search matches labels, model IDs, and provider groups', () => {
@@ -429,5 +431,71 @@ describe('npm CLI package metadata', () => {
     assert.equal(Object.hasOwn(manifest.bin || {}, 'nexus'), false);
     assert.ok(manifest.files.includes('src/'));
     assert.ok(manifest.engines.node.includes('20'));
+  });
+});
+
+
+describe('Mallss Nexus Route OAuth integration', () => {
+  test('stores OAuth tokens in the private credential file and refreshes access tokens', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-route-oauth-'));
+    const previousConfigDir = process.env.NEXUS_CONFIG_DIR;
+    const originalFetch = globalThis.fetch;
+    process.env.NEXUS_CONFIG_DIR = tempDir;
+    const providerId = 'mallss-nexus-route';
+    const oldAccess = 'mnr-oauth-access-expired';
+    const oldRefresh = 'mnr-oauth-refresh-old';
+    try {
+      addProvider({
+        id: providerId,
+        label: 'Mallss Nexus Route',
+        baseUrl: 'https://ai-router.mallss-nexus.sbs/v1',
+        protocol: 'openai-compatible',
+        authFlow: 'oauth2'
+      });
+      saveOAuthCredential(providerId, {
+        access_token: oldAccess,
+        refresh_token: oldRefresh,
+        expires_at: Date.now() - 1000,
+        user: { email: 'developer@example.test' }
+      });
+
+      const providerFile = path.join(tempDir, 'providers.json');
+      const authFile = path.join(tempDir, 'auth.json');
+      const metadata = fs.readFileSync(providerFile, 'utf8');
+      const credentials = fs.readFileSync(authFile, 'utf8');
+      assert.match(metadata, /"authFlow": "oauth2"/);
+      assert.doesNotMatch(metadata, /mnr-oauth/);
+      assert.match(credentials, /mnr-oauth-access-expired/);
+      assert.equal(getOAuthCredential(providerId).refreshToken, oldRefresh);
+      assert.equal(getProviderPickerCatalog().find(item => item.id === providerId)?.connected, true);
+      assert.equal(parseModelConfig(providerId + '/Nexus-Free').authFlow, 'oauth2');
+
+      globalThis.fetch = async (url, options) => {
+        assert.equal(url, 'https://ai-router.mallss-nexus.sbs/auth/oauth/token');
+        assert.equal(options.method, 'POST');
+        assert.match(String(options.body), /grant_type=refresh_token/);
+        assert.match(String(options.body), /client_id=nexuscode/);
+        assert.match(String(options.body), /refresh_token=mnr-oauth-refresh-old/);
+        return new Response(JSON.stringify({
+          access_token: 'mnr-oauth-access-new',
+          refresh_token: 'mnr-oauth-refresh-new',
+          token_type: 'Bearer',
+          expires_in: 3600,
+          user: { email: 'developer@example.test' }
+        }), { status: 200, headers: { 'content-type': 'application/json' } });
+      };
+
+      const token = await getOAuthAccessToken(providerId);
+      assert.equal(token, 'mnr-oauth-access-new');
+      assert.equal(getOAuthCredential(providerId).refreshToken, 'mnr-oauth-refresh-new');
+      assert.ok(getOAuthCredential(providerId).expiresAt > Date.now());
+      assert.equal(clearOAuthCredential(providerId), true);
+      assert.equal(getOAuthCredential(providerId), null);
+    } finally {
+      globalThis.fetch = originalFetch;
+      if (previousConfigDir === undefined) delete process.env.NEXUS_CONFIG_DIR;
+      else process.env.NEXUS_CONFIG_DIR = previousConfigDir;
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 });

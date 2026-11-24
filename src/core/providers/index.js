@@ -7,6 +7,9 @@ import {
   addLocalProvider,
   connectProvider,
   disconnectProvider,
+  saveOAuthCredential,
+  getOAuthCredential,
+  clearOAuthCredential,
   getDefaultModelSelection,
   getOAuthCredential,
   saveOAuthCredential,
@@ -110,7 +113,8 @@ export function parseModelConfig(configStr) {
     baseUrl: config.baseUrl,
     apiKey: config.apiKey,
     protocol: config.protocol || 'openai-compatible',
-    apiKeyEnv: config.apiKeyEnv
+    apiKeyEnv: config.apiKeyEnv,
+    authFlow: config.authFlow || 'api-key'
   };
 }
 

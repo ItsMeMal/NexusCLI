@@ -13,7 +13,7 @@ Arsitektur: **Core + Server (HTTP/SSE) + Multi-Client (CLI/TUI)**.
 
 - **10 Core Tools**: `read_file`, `write_file`, `edit_file`, `bash`, `grep` (ripgrep fallback), `glob`, `todo`, `webfetch`, `repo_map`, `task`.
 - **Client/Server Architecture**: REST API + Server-Sent Events (SSE) streaming.
-- **Provider & Model Picker**: Katalog provider yang bisa dicari, status koneksi, koneksi API key dengan input tersembunyi, dan daftar model yang dikelompokkan per provider. Mendukung OpenAI-compatible gateways/routers, Anthropic, dan Gemini. Metadata provider disimpan di `~/.nexuscli/providers.json`, sedangkan credential lokal dipisah ke `~/.nexuscli/auth.json` dengan permission terbatas; environment variable tetap didukung.
+- **Provider & Model Picker**: Katalog provider yang bisa dicari, status koneksi, koneksi API key, browser OAuth untuk Mallss Nexus Route, dan daftar model yang dikelompokkan per provider. Mendukung OpenAI-compatible gateways/routers, Anthropic, dan Gemini. Metadata provider disimpan di `~/.nexuscli/providers.json`, sedangkan API key dan OAuth access/refresh token dipisah ke `~/.nexuscli/auth.json` dengan permission terbatas; environment variable tetap didukung.
 - **Context Management**: Token estimation, auto-compaction saat >80% batas model, output pruning.
 - **Security & Hardening**:
   - Sandboxing: Docker mount read-write `/workspace` tanpa network (jika tersedia).
@@ -147,7 +147,7 @@ DEBUG=0
 /provider remove openrouter # hapus provider lokal dan credential lokal
 ```
 
-Pilih provider dari katalog, lalu masukkan API key melalui prompt tersembunyi. Credential dari alur koneksi disimpan terpisah di `~/.nexuscli/auth.json` (permission file `0600`, direktori `0700` pada sistem yang mendukungnya), bukan di repository. Provider khusus juga bisa ditambahkan melalui opsi **Custom OpenAI-compatible provider**.
+Pilih provider dari katalog. Untuk **Mallss Nexus Route**, NexusCode membuka browser ke halaman sign-in/consent Mallss Nexus Route; setelah otorisasi, CLI menerima authorization code melalui callback localhost dan menukarnya dengan token menggunakan OAuth 2.0 Authorization Code + PKCE. Tidak perlu membuat atau menyalin API key secara manual. Access token diperbarui otomatis menggunakan refresh token. Token disimpan terpisah di `~/.nexuscli/auth.json` (permission file `0600`, direktori `0700` pada sistem yang mendukungnya), bukan di repository. Untuk provider lain, masukkan API key melalui prompt tersembunyi. Provider khusus juga bisa ditambahkan melalui opsi **Custom OpenAI-compatible provider**.
 
 Konfigurasi environment lama tetap didukung. Contoh `/provider add` masih tersedia untuk mendaftarkan endpoint dan referensi environment variable:
 
@@ -155,7 +155,7 @@ Konfigurasi environment lama tetap didukung. Contoh `/provider add` masih tersed
 /provider add my-router https://gateway.example/v1 MY_ROUTER_API_KEY - My Router
 ```
 
-Simpan API key di `.env` lokal atau environment shell dan jangan commit credential ke Git. Model dipilih dengan format `provider/model-id` dan ditemukan dari endpoint model provider yang sesuai.
+Simpan API key di `.env` lokal atau environment shell dan jangan commit credential ke Git. Model dipilih dengan format `provider/model-id` dan ditemukan dari endpoint model provider yang sesuai. Setelah Mallss Nexus Route terhubung, pilih salah satu model akunmu melalui `/models`; request menggunakan saldo, batas pemakaian, dan izin akun Mallss Nexus Route.
 
 ---
 
