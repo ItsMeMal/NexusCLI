@@ -169,7 +169,7 @@ export function renderBanner({ sessionId, mode, model, serverUrl, gitBranch = 'c
   const infoW = innerWidth - 9;
   const r1Info = `${c.dim}Model:${c.reset} ${c.cyan}${c.bold}${model}${c.reset}   ${c.dim}Git:${c.reset} ${c.magenta} ${gitBranch}${c.reset}   ${c.dim}Endpoint:${c.reset} ${c.slate}${serverUrl.replace(/^http:\/\//, '')}${c.reset}`;
   const r2Info = `${c.dim}Session:${c.reset} ${c.slate}${shortSession}${c.reset}   ${c.dim}Permissions:${c.reset} ${c.amber}Smart Guardrails${c.reset}`;
-  const r3Info = `${c.cyan}${c.bold}NexusAI:${c.reset} ${c.dim}"Aku koordinasikan tools, agents, dan model untuk menyelesaikan tujuanmu."${c.reset}`;
+  const r3Info = `${c.cyan}${c.bold}Nexus:${c.reset} ${c.dim}"Aku koordinasikan tools, agents, dan model untuk menyelesaikan tujuanmu."${c.reset}`;
 
   const hint1 = `${c.dim}Type any task or question • Enter ${c.bold}${c.cyan}/${c.reset}${c.dim} or press ${c.bold}${c.cyan}[Tab]${c.reset}${c.dim} for slash commands${c.reset}`;
 

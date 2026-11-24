@@ -398,7 +398,7 @@ async function runInteractive(parsed) {
       onToken: (tok) => {
         if (!tokenStreamStarted) {
           spinner.stop(true);
-          console.log(`\n  ${c.cyan}✦${c.reset} ${c.bold}${c.brightWhite}NexusAI${c.reset} ${c.magenta}( ˘ᴗ˘ )🪄${c.reset} ${c.dim}›${c.reset}\n`);
+          console.log(`\n  ${c.cyan}✦${c.reset} ${c.bold}${c.brightWhite}Nexus${c.reset} ${c.magenta}( ˘ᴗ˘ )🪄${c.reset} ${c.dim}›${c.reset}\n`);
           tokenStreamStarted = true;
         }
         process.stdout.write(tok);
@@ -559,7 +559,7 @@ async function runInteractive(parsed) {
     // Exit
     if (trimmed === 'exit' || trimmed === 'quit' || trimmed === '/exit' || trimmed === '/quit') {
       await cleanup();
-      console.log(`\n  ( ˘ᴗ˘ )v ${c.cyan}Sampai jumpa! 👋 NexusAI session closed.${c.reset}\n`);
+      console.log(`\n  ( ˘ᴗ˘ )v ${c.cyan}Sampai jumpa! 👋 Nexus session closed.${c.reset}\n`);
       return;
     }
 

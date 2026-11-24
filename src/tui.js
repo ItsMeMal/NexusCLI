@@ -370,7 +370,7 @@ function MessagesArea({ messages, activeStream, maxRows }) {
       }
       if (msg.role === 'assistant') {
         return createElement(Box, { key: idx, marginY: 0, flexDirection: 'column' },
-          createElement(Text, { color: 'green', bold: true }, '🤖 Nexus AI:'),
+          createElement(Text, { color: 'green', bold: true }, '🤖 Nexus:'),
           createElement(Text, { color: 'white' }, msg.content)
         );
       }
@@ -401,7 +401,7 @@ function MessagesArea({ messages, activeStream, maxRows }) {
 
     // Live Streaming Token Block
     activeStream ? createElement(Box, { marginY: 0, flexDirection: 'column' },
-      createElement(Text, { color: 'green', bold: true }, '🤖 Nexus AI (mengetik...):'),
+      createElement(Text, { color: 'green', bold: true }, '🤖 Nexus (mengetik...):'),
       createElement(Text, { color: 'white' }, activeStream + ' █')
     ) : null
   );
@@ -561,7 +561,7 @@ function InputBox({ input, mode, isBusy }) {
   },
     createElement(Text, { color: 'cyan', bold: true }, `[${mode.toUpperCase()}] ❯ `),
     createElement(Text, { color: isBusy ? 'gray' : 'white' },
-      input || (isBusy ? 'NexusAI sedang memproses... tunggu sejenak' : 'Tulis pertanyaan atau tugas apa pun, atau ketik / untuk commands...')
+      input || (isBusy ? 'Nexus sedang memproses... tunggu sejenak' : 'Tulis pertanyaan atau tugas apa pun, atau ketik / untuk commands...')
     ),
     !isBusy ? createElement(Text, { color: 'cyan' }, '█') : null
   );

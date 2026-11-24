@@ -248,7 +248,9 @@ describe('Prompt Input Module', () => {
 describe('General-purpose agent and provider selection', () => {
   test('system prompt does not assume every request is a coding task', () => {
     const prompt = buildSystemPrompt({ workingDir: path.resolve('test/fixtures/calculator') });
-    assert.match(prompt, /general-purpose AI orchestrator/i);
+    assert.match(prompt, /general-purpose orchestrator/i);
+    assert.match(prompt, /Your name is Nexus/i);
+    assert.match(prompt, /Never identify yourself as Elaina/i);
     assert.match(prompt, /Do not assume a request is about coding/i);
     assert.match(prompt, /delegate independent research/i);
     assert.match(prompt, /todo tool/i);
