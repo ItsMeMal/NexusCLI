@@ -94,10 +94,10 @@ npm start
 
 ### Install dari npm
 
-Setelah paket dipublikasikan ke npm:
+Setelah paket dipublikasikan sebagai package publik:
 
 ```bash
-npm install -g nexuscode-cli
+npm install -g @mallssz/nexuscode-cli
 
 # Jalankan dari direktori mana pun
 nexuscode
@@ -106,7 +106,7 @@ nexuscode
 Tanpa instalasi global:
 
 ```bash
-npx nexuscode-cli
+npm exec --package=@mallssz/nexuscode-cli -- nexuscode
 ```
 
 Untuk pengembangan lokal, jalankan `npm link` dari root repository agar command `nexuscode` mengarah ke checkout ini.
