@@ -961,7 +961,7 @@ async function runInteractive(parsed) {
         provider: providerName,
         apiKeyOk: hasKey,
         apiKeyStatus: hasKey ? 'Configured in environment' : 'Missing (set API_KEY in .env)',
-        toolsCount: defaultRegistry.list().length,
+        toolsCount: localServer?.registry.list().length ?? defaultRegistry.list().length,
         agentsCount: subagentsCount,
         auditOk: hasAudit,
         auditStatus: hasAudit ? `Present (${path.basename(auditPath)})` : 'Will create upon first tool call',
