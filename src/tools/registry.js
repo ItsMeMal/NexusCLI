@@ -20,6 +20,10 @@ export class ToolRegistry {
     return this.tools.has(name);
   }
 
+  unregister(name) {
+    return this.tools.delete(name);
+  }
+
   list() {
     return Array.from(this.tools.values());
   }
