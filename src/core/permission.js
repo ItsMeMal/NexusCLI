@@ -21,10 +21,16 @@ export function assertPathWithinCwd(targetPath, cwd = process.cwd()) {
   // when the destination file or its final directories do not exist yet.
   const realCwd = fs.realpathSync(resolvedCwd);
   let existingAncestor = resolvedTarget;
-  while (!fs.existsSync(existingAncestor)) {
-    const parent = path.dirname(existingAncestor);
-    if (parent === existingAncestor) break;
-    existingAncestor = parent;
+  while (true) {
+    try {
+      fs.lstatSync(existingAncestor);
+      break;
+    } catch (error) {
+      if (!['ENOENT', 'ENOTDIR'].includes(error.code)) throw error;
+      const parent = path.dirname(existingAncestor);
+      if (parent === existingAncestor) throw error;
+      existingAncestor = parent;
+    }
   }
 
   const realAncestor = fs.realpathSync(existingAncestor);
@@ -96,9 +102,9 @@ export class PermissionManager {
       }
       if (toolName === 'bash') {
         const cmd = (args.command || '').trim();
-        const hasShellOperators = /[;&|<>\x60$\\r\\n]/.test(cmd);
+        const hasShellOperators = /[;&|<>\x60$\r\n]/.test(cmd);
         const isSafeRead = !hasShellOperators &&
-          /^(git\\s+(?:status|diff|log|branch)|dir|ls\\b|cat\\b)/.test(cmd);
+          /^(git\s+(?:status|diff|log|branch)|dir|ls\b|cat\b)/.test(cmd);
         if (!isSafeRead) {
           return {
             action: 'deny',
@@ -121,7 +127,7 @@ export class PermissionManager {
 
     if (toolName === 'bash') {
       const cmd = (args.command || '').trim();
-      if (/[;&|<>\x60$\\r\\n]/.test(cmd)) {
+      if (/[;&|<>\x60$\r\n]/.test(cmd)) {
         return {
           action: 'ask',
           reason: 'Shell operators, substitutions, and redirections require explicit approval.'
