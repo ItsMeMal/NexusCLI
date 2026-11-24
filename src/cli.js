@@ -21,7 +21,8 @@ import {
   renderBanner,
   renderCommandList,
   renderDoctorReport,
-  renderCostReport
+  renderCostReport,
+  renderSecurityPrompt
 } from './core/ui.js';
 
 function loadEnv() {
@@ -95,15 +96,15 @@ function parseArgs(argv) {
 const SLASH_COMMANDS = [
   '/plan',
   '/build',
-  '/model',
   '/diff',
-  '/compact',
-  '/cost',
-  '/usage',
   '/undo',
   '/redo',
   '/checkpoints',
   '/checkpoint',
+  '/model',
+  '/compact',
+  '/cost',
+  '/usage',
   '/sessions',
   '/resume',
   '/new',
@@ -370,7 +371,7 @@ async function runNonInteractive(parsed) {
   process.exit(result.exitCode);
 }
 
-// --- Interactive Mode with Animated UI ---
+// --- Interactive Mode with Agency-Grade Animated UI ---
 
 async function runInteractive(parsed) {
   let localServer = null;
@@ -406,13 +407,14 @@ async function runInteractive(parsed) {
 
   const executeTurn = async (userInput, rl, autoApprove = false) => {
     let tokenStreamStarted = false;
-    spinner.start('Thinking...');
+    const turnStartTime = Date.now();
+    spinner.start('Thinking & analyzing workspace...');
 
     await client.sendMessage(userInput, {
       onToken: (tok) => {
         if (!tokenStreamStarted) {
           spinner.stop(true);
-          process.stdout.write(`\n${c.cyan}🤖 ${c.reset}`);
+          console.log(`\n  ${c.cyan}✦${c.reset} ${c.bold}${c.brightWhite}Elaina (Nexus AI)${c.reset} ${c.dim}›${c.reset}\n`);
           tokenStreamStarted = true;
         }
         process.stdout.write(tok);
@@ -423,15 +425,15 @@ async function runInteractive(parsed) {
           tokenStreamStarted = false;
         }
         const argsPreview = JSON.stringify(event.args || {});
-        const shortArgs = argsPreview.length > 50 ? argsPreview.slice(0, 50) + '...' : argsPreview;
-        spinner.start(`Executing tool: ${c.cyan}${event.name}${c.reset} ${c.dim}${shortArgs}${c.reset}`);
+        const shortArgs = argsPreview.length > 55 ? argsPreview.slice(0, 52) + '…' : argsPreview;
+        spinner.start(`Tool: ${c.cyan}${c.bold}${event.name}${c.reset} ${c.dim}${shortArgs}${c.reset}`);
       },
       onToolResult: (event) => {
         const outStr = String(event.output || '');
-        const snippet = outStr.length > 80
-          ? outStr.slice(0, 80).replace(/\r?\n/g, ' ') + '...'
+        const snippet = outStr.length > 85
+          ? outStr.slice(0, 85).replace(/\r?\n/g, ' ') + '…'
           : outStr.replace(/\r?\n/g, ' ');
-        spinner.succeed(`${c.bold}${event.name}${c.reset} → ${c.dim}${snippet || '(no output)'}${c.reset}`);
+        spinner.succeed(`${c.bold}${event.name}${c.reset} → ${c.dim}${snippet || '(success)'}${c.reset}`);
       },
       onPermission: async (event) => {
         spinner.stop(true);
@@ -446,20 +448,18 @@ async function runInteractive(parsed) {
           return;
         }
 
-        const argsStr = JSON.stringify(event.args, null, 2);
-        console.log(`\n${c.yellow}⚠️  PERMISSION CONFIRMATION REQUIRED${c.reset}`);
-        console.log(`   ${c.bold}Tool:${c.reset}   ${c.cyan}${event.tool}${c.reset}`);
-        console.log(`   ${c.bold}Args:${c.reset}   ${c.dim}${argsStr.replace(/\n/g, '\n   ')}${c.reset}`);
-        if (event.reason) {
-          console.log(`   ${c.bold}Reason:${c.reset} ${c.yellow}${event.reason}${c.reset}`);
-        }
+        renderSecurityPrompt({
+          tool: event.tool,
+          args: event.args,
+          reason: event.reason
+        });
 
-        rl.question(`   ${c.bold}Allow execution? (y/N): ${c.reset}`, async (ans) => {
+        rl.question(`\n  ${c.bold}Authorize execution? (y/N): ${c.reset}`, async (ans) => {
           const allow = ans.trim().toLowerCase() === 'y' || ans.trim().toLowerCase() === 'yes';
           if (allow) {
-            console.log(`   ${c.green}✔ Action approved.${c.reset}\n`);
+            console.log(`  ${c.green}✔ Action authorized.${c.reset}\n`);
           } else {
-            console.log(`   ${c.red}✖ Action denied.${c.reset}\n`);
+            console.log(`  ${c.red}✖ Action denied by user.${c.reset}\n`);
           }
           await client.answerPermission(event.id, allow);
         });
@@ -469,16 +469,19 @@ async function runInteractive(parsed) {
         if (tokenStreamStarted) {
           console.log('\n');
         }
+        const duration = ((Date.now() - turnStartTime) / 1000).toFixed(1);
         if (doneData.usage) {
           const u = doneData.usage;
           const promptFmt = (u.prompt_tokens || 0).toLocaleString();
           const compFmt = (u.completion_tokens || 0).toLocaleString();
           const totalFmt = (u.total_tokens || 0).toLocaleString();
-          console.log(`${c.dim}📊 [Tokens: ${c.cyan}${promptFmt}${c.dim} in • ${c.cyan}${compFmt}${c.dim} out • ${c.bold}${totalFmt}${c.dim} total]${c.reset}\n`);
+          console.log(`  ${c.dim}╰─ 📊 [${c.cyan}${totalFmt} tokens${c.dim} (${promptFmt} in / ${compFmt} out) • ${duration}s elapsed]${c.reset}\n`);
+        } else {
+          console.log(`  ${c.dim}╰─ ✔ Turn finished in ${duration}s${c.reset}\n`);
         }
       },
       onError: (errData) => {
-        spinner.fail(`Error: ${errData.message}`);
+        spinner.fail(`Execution Error: ${errData.message}`);
         console.log('');
       }
     });
@@ -515,11 +518,19 @@ async function runInteractive(parsed) {
     completer
   });
 
-  const promptUser = () => {
+  const promptUser = async () => {
     const s = client.sessionData;
-    const modeBadge = s.mode === 'plan' ? `${c.yellow}plan${c.reset}` : `${c.green}build${c.reset}`;
-    const modelTag = `${c.cyan}${s.model || 'default'}${c.reset}`;
-    const promptStr = `${c.dim}[${modeBadge}${c.dim}:${modelTag}${c.dim}]${c.reset} ${c.bold}${c.brightWhite}nexus>${c.reset} `;
+    const modeBadge = s.mode === 'plan'
+      ? `${c.bgYellow}${c.black}${c.bold} PLAN ${c.reset}`
+      : `${c.bgGreen}${c.black}${c.bold} BUILD ${c.reset}`;
+    const curBranch = (await snapshotManager.getCurrentBranch()) || 'main';
+    const modelTag = `${c.cyan}${c.bold}${s.model || 'default'}${c.reset}`;
+    const shortId = client.sessionId ? client.sessionId.slice(0, 16) + '…' : '';
+
+    // Modern 2-line Starship/Claude Code style prompt
+    const line1 = `${c.dim}╭─${c.reset} ${modeBadge} ${c.magenta} ${curBranch}${c.reset} ${c.dim}•${c.reset} ${modelTag} ${c.dim}(${shortId})${c.reset}\n`;
+    const line2 = `${c.dim}╰─${c.reset}${c.cyan}${c.bold}❯${c.reset} `;
+    const promptStr = line1 + line2;
 
     rl.question(promptStr, async (input) => {
       const trimmed = input.trim();
@@ -532,11 +543,11 @@ async function runInteractive(parsed) {
       if (trimmed === 'exit' || trimmed === 'quit' || trimmed === '/exit' || trimmed === '/quit') {
         rl.close();
         await cleanup();
-        console.log(`\n${c.dim}Sampai jumpa! 👋${c.reset}\n`);
+        console.log(`\n  ${c.dim}Sampai jumpa! 👋 Nexus session closed.${c.reset}\n`);
         return;
       }
 
-      // Help / Command list (also trigger if user types just '/')
+      // Help / Command list (trigger if user types just '/' or '/help')
       if (trimmed === '/' || trimmed === '/help') {
         renderCommandList();
         promptUser();
@@ -546,7 +557,7 @@ async function runInteractive(parsed) {
       // Plan mode
       if (trimmed === '/plan') {
         client.sessionData.mode = 'plan';
-        console.log(`\n🔒 ${c.yellow}${c.bold}Switched to PLAN mode${c.reset} ${c.dim}(read-only). File modifications blocked.${c.reset}\n`);
+        console.log(`\n  🔒 ${c.yellow}${c.bold}Switched to PLAN mode${c.reset} ${c.dim}(read-only). File modifications blocked.${c.reset}\n`);
         promptUser();
         return;
       }
@@ -554,7 +565,7 @@ async function runInteractive(parsed) {
       // Build mode
       if (trimmed === '/build') {
         client.sessionData.mode = 'build';
-        console.log(`\n⚡ ${c.green}${c.bold}Switched to BUILD mode${c.reset} ${c.dim}(full execution). File modifications enabled.${c.reset}\n`);
+        console.log(`\n  ⚡ ${c.green}${c.bold}Switched to BUILD mode${c.reset} ${c.dim}(full execution). File writes & bash enabled.${c.reset}\n`);
         promptUser();
         return;
       }
@@ -563,11 +574,11 @@ async function runInteractive(parsed) {
       if (trimmed.startsWith('/model')) {
         const newModel = trimmed.slice(6).trim();
         if (!newModel) {
-          console.log(`\n${c.bold}Active Model:${c.reset} ${c.cyan}${client.sessionData.model}${c.reset}`);
-          console.log(`${c.dim}Usage: /model <name> (e.g. gpt-4o, claude-3-5-sonnet-20241022, gemini-1.5-flash)${c.reset}\n`);
+          console.log(`\n  ${c.bold}Active Model:${c.reset} ${c.cyan}${client.sessionData.model}${c.reset}`);
+          console.log(`  ${c.dim}Usage: /model <name> (e.g. gpt-4o, claude-3-5-sonnet-20241022, gemini-1.5-flash)${c.reset}\n`);
         } else {
           client.sessionData.model = newModel;
-          console.log(`\n🎯 ${c.bold}Model changed to:${c.reset} ${c.cyan}${newModel}${c.reset}\n`);
+          console.log(`\n  🎯 ${c.bold}Model switched to:${c.reset} ${c.cyan}${c.bold}${newModel}${c.reset}\n`);
         }
         promptUser();
         return;
@@ -580,7 +591,7 @@ async function runInteractive(parsed) {
           const config = getModelConfig(client.sessionData.model);
           renderCostReport(loaded, config);
         } catch (err) {
-          console.log(`\n❌ Failed to load cost data: ${err.message}\n`);
+          console.log(`\n  ${c.red}✖ Failed to load cost data:${c.reset} ${err.message}\n`);
         }
         promptUser();
         return;
@@ -588,7 +599,7 @@ async function runInteractive(parsed) {
 
       // Context compaction
       if (trimmed === '/compact') {
-        spinner.start('Compacting conversation context...');
+        spinner.start('Compacting conversation context history...');
         try {
           const res = await client.compactSession();
           if (res.compacted) {
@@ -609,29 +620,32 @@ async function runInteractive(parsed) {
       if (trimmed === '/diff') {
         const diffRes = await snapshotManager.getDiff();
         if (!diffRes.success) {
-          console.log(`\n⚠️ ${diffRes.message}\n`);
+          console.log(`\n  ${c.amber}⚠️  ${diffRes.message}${c.reset}\n`);
         } else if (!diffRes.diff && !diffRes.status) {
-          console.log(`\n${c.green}✔ Working directory clean.${c.reset} No unstaged or modified files.\n`);
+          console.log(`\n  ${c.green}✔ Working directory clean.${c.reset} No unstaged or modified files.\n`);
         } else {
-          console.log(`\n${c.bold}${c.cyan}WORKSPACE DIFF (vs ${diffRes.compareRef}):${c.reset}`);
-          console.log('─'.repeat(50));
+          console.log(`\n${c.cyan}╭── 📂 WORKSPACE DIFF (vs ${diffRes.compareRef}) ─────────────────────────────╮${c.reset}`);
           if (diffRes.status) {
-            console.log(`${c.bold}Modified files:${c.reset}\n${diffRes.status}\n`);
+            console.log(`${c.cyan}│${c.reset}  ${c.bold}Modified files:${c.reset}`);
+            for (const sLine of diffRes.status.split('\n')) {
+              if (sLine.trim()) console.log(`${c.cyan}│${c.reset}    ${c.amber}${sLine}${c.reset}`);
+            }
           }
           if (diffRes.diff) {
+            console.log(`${c.cyan}├─────────────────────────────────────────────────────────────────────────────┤${c.reset}`);
             for (const line of diffRes.diff.split('\n')) {
               if (line.startsWith('+') && !line.startsWith('+++')) {
-                console.log(`${c.green}${line}${c.reset}`);
+                console.log(`${c.cyan}│${c.reset} ${c.green}${line}${c.reset}`);
               } else if (line.startsWith('-') && !line.startsWith('---')) {
-                console.log(`${c.red}${line}${c.reset}`);
+                console.log(`${c.cyan}│${c.reset} ${c.red}${line}${c.reset}`);
               } else if (line.startsWith('@@')) {
-                console.log(`${c.cyan}${line}${c.reset}`);
+                console.log(`${c.cyan}│${c.reset} ${c.cyan}${line}${c.reset}`);
               } else {
-                console.log(line);
+                console.log(`${c.cyan}│${c.reset} ${c.dim}${line}${c.reset}`);
               }
             }
           }
-          console.log('─'.repeat(50) + '\n');
+          console.log(`${c.cyan}╰─────────────────────────────────────────────────────────────────────────────╯${c.reset}\n`);
         }
         promptUser();
         return;
@@ -639,7 +653,7 @@ async function runInteractive(parsed) {
 
       // Doctor / Diagnostics
       if (trimmed === '/doctor') {
-        spinner.start('Running diagnostic health checks...');
+        spinner.start('Running system diagnostic health checks...');
         const isGit = await isGitRepo(process.cwd());
         const hasDocker = await isDockerAvailable();
         const activeModel = client.sessionData.model;
@@ -663,7 +677,7 @@ async function runInteractive(parsed) {
           gitOk: isGit,
           gitStatus: isGit ? 'Initialized git repository' : 'Not a git repo (run git init)',
           dockerOk: hasDocker,
-          dockerStatus: hasDocker ? 'Available (sandbox enabled)' : 'Not installed / daemon offline (fallback to host exec)',
+          dockerStatus: hasDocker ? 'Available (sandbox enabled)' : 'Host exec mode (daemon offline)',
           modelOk: true,
           model: activeModel,
           provider: providerName,
@@ -672,7 +686,7 @@ async function runInteractive(parsed) {
           toolsCount: defaultRegistry.list().length,
           agentsCount: subagentsCount,
           auditOk: hasAudit,
-          auditStatus: hasAudit ? `Present (${path.basename(auditPath)})` : 'Will be created upon first tool call',
+          auditStatus: hasAudit ? `Present (${path.basename(auditPath)})` : 'Will create upon first tool call',
           allHealthy: isGit && hasKey
         });
         promptUser();
@@ -716,7 +730,7 @@ async function runInteractive(parsed) {
           fs.writeFileSync(configPath, JSON.stringify(defaultConfig, null, 2), 'utf8');
         }
 
-        console.log(`\n${c.green}✔ Workspace initialized for Nexus Agent.${c.reset}`);
+        console.log(`\n  ${c.green}✔ Workspace initialized for Nexus Agent.${c.reset}`);
         console.log(`  ${c.dim}Directories:${c.reset} .agent/{agents, commands, plugins, sessions}`);
         console.log(`  ${c.dim}Config:${c.reset}      agent.config.json\n`);
         promptUser();
@@ -726,7 +740,7 @@ async function runInteractive(parsed) {
       // New session
       if (trimmed === '/new') {
         const fresh = await client.createSession({ mode: 'build', model: client.sessionData.model });
-        console.log(`\n✨ ${c.green}${c.bold}Fresh session created:${c.reset} ${c.cyan}${fresh.id}${c.reset}\n`);
+        console.log(`\n  ✨ ${c.green}${c.bold}Fresh session initialized:${c.reset} ${c.cyan}${fresh.id}${c.reset}\n`);
         promptUser();
         return;
       }
@@ -734,15 +748,15 @@ async function runInteractive(parsed) {
       // List sessions
       if (trimmed === '/sessions') {
         const list = await client.listSessions();
-        console.log(`\n${c.bold}${c.cyan}SAVED SESSIONS${c.reset}`);
-        console.log('─'.repeat(70));
+        console.log(`\n${c.cyan}╭── 💬 SAVED CONVERSATION SESSIONS ──────────────────────────────────────────╮${c.reset}`);
         for (const s of list) {
-          const activeMark = s.id === client.sessionId ? ` ${c.green}◀ active${c.reset}` : '';
+          const activeMark = s.id === client.sessionId ? ` ${c.green}${c.bold}◀ ACTIVE${c.reset}` : '';
           const dateStr = new Date(s.updatedAt).toLocaleString();
-          const modeTag = s.mode === 'plan' ? `${c.yellow}[plan]${c.reset}` : `${c.green}[build]${c.reset}`;
-          console.log(`- ${c.bold}${s.id}${c.reset}${activeMark} | ${modeTag} ${c.dim}${s.model || 'default'}${c.reset} | ${s.messageCount} msgs | ${s.tokens.toLocaleString()} tok | ${c.dim}${dateStr}${c.reset}`);
+          const modeTag = s.mode === 'plan' ? `${c.yellow}[PLAN]${c.reset}` : `${c.green}[BUILD]${c.reset}`;
+          console.log(`${c.cyan}│${c.reset}  ${c.bold}${s.id}${c.reset}${activeMark}`);
+          console.log(`${c.cyan}│${c.reset}    ${modeTag} ${c.dim}Model:${c.reset} ${c.cyan}${s.model || 'default'}${c.reset} ${c.dim}• ${s.messageCount} msgs • ${(s.tokens || 0).toLocaleString()} tok • ${dateStr}${c.reset}`);
         }
-        console.log('─'.repeat(70) + '\n');
+        console.log(`${c.cyan}╰────────────────────────────────────────────────────────────────────────────╯${c.reset}\n`);
         promptUser();
         return;
       }
@@ -751,13 +765,13 @@ async function runInteractive(parsed) {
       if (trimmed.startsWith('/resume')) {
         const targetId = trimmed.slice(7).trim();
         if (!targetId) {
-          console.log(`\n${c.dim}Usage: /resume <session_id>${c.reset}\n`);
+          console.log(`\n  ${c.dim}Usage: /resume <session_id>${c.reset}\n`);
         } else {
           try {
             const resumed = await client.loadSession(targetId);
-            console.log(`\n📂 ${c.green}${c.bold}Resumed session:${c.reset} ${c.cyan}${resumed.id}${c.reset} ${c.dim}(${resumed.messages?.length || 0} messages)${c.reset}\n`);
+            console.log(`\n  📂 ${c.green}${c.bold}Resumed session:${c.reset} ${c.cyan}${resumed.id}${c.reset} ${c.dim}(${resumed.messages?.length || 0} messages loaded)${c.reset}\n`);
           } catch (err) {
-            console.log(`\n❌ ${err.message}\n`);
+            console.log(`\n  ${c.red}✖ Failed to resume:${c.reset} ${err.message}\n`);
           }
         }
         promptUser();
@@ -783,9 +797,9 @@ async function runInteractive(parsed) {
       if (trimmed === '/undo') {
         const res = await snapshotManager.undo();
         if (res.success) {
-          console.log(`\n↩️ ${c.green}${res.message}${c.reset}\n`);
+          console.log(`\n  ↩️  ${c.green}${res.message}${c.reset}\n`);
         } else {
-          console.log(`\n⚠️ ${c.yellow}${res.message}${c.reset}\n`);
+          console.log(`\n  ⚠️  ${c.yellow}${res.message}${c.reset}\n`);
         }
         promptUser();
         return;
@@ -795,9 +809,9 @@ async function runInteractive(parsed) {
       if (trimmed === '/redo') {
         const res = await snapshotManager.redo();
         if (res.success) {
-          console.log(`\n↪️ ${c.green}${res.message}${c.reset}\n`);
+          console.log(`\n  ↪️  ${c.green}${res.message}${c.reset}\n`);
         } else {
-          console.log(`\n⚠️ ${c.yellow}${res.message}${c.reset}\n`);
+          console.log(`\n  ⚠️  ${c.yellow}${res.message}${c.reset}\n`);
         }
         promptUser();
         return;
@@ -807,16 +821,15 @@ async function runInteractive(parsed) {
       if (trimmed === '/checkpoints') {
         const cps = snapshotManager.listCheckpoints();
         if (cps.length === 0) {
-          console.log(`\n${c.dim}No checkpoints available in this session.${c.reset}\n`);
+          console.log(`\n  ${c.dim}No checkpoints captured in this session yet.${c.reset}\n`);
         } else {
-          console.log(`\n${c.bold}${c.cyan}GIT CHECKPOINTS${c.reset}`);
-          console.log('─'.repeat(55));
+          console.log(`\n${c.cyan}╭── 📌 GIT CHECKPOINTS HISTORY ──────────────────────────────────────────────╮${c.reset}`);
           for (const cp of cps) {
-            const marker = cp.current ? ` ${c.green}◀ current${c.reset}` : '';
+            const marker = cp.current ? ` ${c.green}${c.bold}◀ current${c.reset}` : '';
             const dateStr = new Date(cp.timestamp).toLocaleTimeString();
-            console.log(`  [${cp.index}] ${c.bold}${cp.ref}${c.reset} "${c.cyan}${cp.label}${c.reset}" ${c.dim}${dateStr}${c.reset}${marker}`);
+            console.log(`${c.cyan}│${c.reset}  [${cp.index}] ${c.bold}${cp.ref}${c.reset} "${c.cyan}${cp.label}${c.reset}" ${c.dim}${dateStr}${c.reset}${marker}`);
           }
-          console.log('─'.repeat(55) + '\n');
+          console.log(`${c.cyan}╰────────────────────────────────────────────────────────────────────────────╯${c.reset}\n`);
         }
         promptUser();
         return;
@@ -827,9 +840,9 @@ async function runInteractive(parsed) {
         const label = trimmed.slice(11).trim() || undefined;
         const res = await snapshotManager.createCheckpoint(label);
         if (res.success) {
-          console.log(`\n📌 ${c.green}Checkpoint created:${c.reset} [${res.index}] ${c.bold}${res.ref}${c.reset} "${c.cyan}${res.label}${c.reset}"\n`);
+          console.log(`\n  📌 ${c.green}Checkpoint created:${c.reset} [${res.index}] ${c.bold}${res.ref}${c.reset} "${c.cyan}${res.label}${c.reset}"\n`);
         } else {
-          console.log(`\n⚠️ ${c.yellow}${res.message}${c.reset}\n`);
+          console.log(`\n  ⚠️  ${c.yellow}${res.message}${c.reset}\n`);
         }
         promptUser();
         return;
@@ -842,9 +855,9 @@ async function runInteractive(parsed) {
         try {
           const sessionData = await client.loadSession(client.sessionId);
           exportSessionToHTML(sessionData, outputPath);
-          console.log(`\n📄 ${c.green}Session exported to:${c.reset} ${c.bold}${path.resolve(outputPath)}${c.reset}\n`);
+          console.log(`\n  📄 ${c.green}Session exported to HTML:${c.reset} ${c.bold}${path.resolve(outputPath)}${c.reset}\n`);
         } catch (err) {
-          console.log(`\n❌ Export failed: ${err.message}\n`);
+          console.log(`\n  ${c.red}✖ Export failed:${c.reset} ${err.message}\n`);
         }
         promptUser();
         return;
@@ -854,7 +867,7 @@ async function runInteractive(parsed) {
       try {
         await executeTurn(trimmed, rl, false);
       } catch (turnErr) {
-        console.error(`\n❌ Error: ${turnErr.message}\n`);
+        console.error(`\n  ${c.red}✖ Execution Error:${c.reset} ${turnErr.message}\n`);
       }
 
       promptUser();

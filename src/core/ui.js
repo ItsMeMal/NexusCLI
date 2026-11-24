@@ -1,6 +1,7 @@
 import readline from 'node:readline';
 
-// ANSI escape codes
+// ─── ANSI Styling Palette (Truecolor + High-contrast ANSI fallback) ──────────
+
 export const c = {
   reset: '\x1b[0m',
   bold: '\x1b[1m',
@@ -8,7 +9,7 @@ export const c = {
   italic: '\x1b[3m',
   underline: '\x1b[4m',
 
-  // Foreground colors
+  // Standard Colors
   black: '\x1b[30m',
   red: '\x1b[31m',
   green: '\x1b[32m',
@@ -18,21 +19,32 @@ export const c = {
   cyan: '\x1b[36m',
   white: '\x1b[37m',
   gray: '\x1b[90m',
-  brightWhite: '\x1b[97m',
 
-  // Background badges
-  bgBlue: '\x1b[44m',
+  // High-Vibrancy Modern Terminal Tones
+  brightWhite: '\x1b[97m',
+  brand: '\x1b[38;2;129;140;248m',     // Electric Indigo
+  teal: '\x1b[38;2;45;212;191m',       // Bright Teal
+  amber: '\x1b[38;2;251;191;36m',      // Warm Amber
+  emerald: '\x1b[38;2;52;211;153m',    // Lush Mint Green
+  rose: '\x1b[38;2;244;63;94m',        // Coral Rose
+  slate: '\x1b[38;2;148;163;184m',     // Cool Slate
+  muted: '\x1b[38;2;100;116;139m',     // Muted Blue-Gray
+
+  // Badges & Backgrounds
   bgGreen: '\x1b[42m',
   bgYellow: '\x1b[43m',
+  bgBlue: '\x1b[44m',
   bgMagenta: '\x1b[45m',
   bgCyan: '\x1b[46m',
-  bgDark: '\x1b[100m'
+  bgDark: '\x1b[100m',
+  bgBrand: '\x1b[48;2;67;56;202m',
+  bgSlate: '\x1b[48;2;30;41;59m'
 };
 
 export const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
 /**
- * Animated terminal spinner
+ * Animated terminal spinner with high-res elapsed timer
  */
 export class Spinner {
   constructor(initialText = '') {
@@ -55,7 +67,7 @@ export class Spinner {
     this.timer = setInterval(() => {
       const frame = SPINNER_FRAMES[this.frameIndex % SPINNER_FRAMES.length];
       const elapsed = ((Date.now() - this.startTime) / 1000).toFixed(1);
-      const line = `\r${c.cyan}${frame}${c.reset} ${this.text} ${c.dim}(${elapsed}s)${c.reset}`;
+      const line = `\r  ${c.cyan}${frame}${c.reset} ${c.bold}${this.text}${c.reset} ${c.dim}(${elapsed}s)${c.reset}`;
       process.stdout.write(line + '\x1b[K');
       this.frameIndex++;
     }, 80);
@@ -81,17 +93,17 @@ export class Spinner {
   succeed(text) {
     this.stop(true);
     const elapsed = ((Date.now() - this.startTime) / 1000).toFixed(1);
-    console.log(`${c.green}✔${c.reset} ${text || this.text} ${c.dim}(${elapsed}s)${c.reset}`);
+    console.log(`  ${c.green}✔${c.reset} ${text || this.text} ${c.dim}(${elapsed}s)${c.reset}`);
   }
 
   fail(text) {
     this.stop(true);
-    console.log(`${c.red}✖${c.reset} ${text || this.text}`);
+    console.log(`  ${c.red}✖${c.reset} ${text || this.text}`);
   }
 
   info(text) {
     this.stop(true);
-    console.log(`${c.blue}ℹ${c.reset} ${text}`);
+    console.log(`  ${c.blue}ℹ${c.reset} ${text}`);
   }
 }
 
@@ -107,112 +119,199 @@ export function badge(label, color = 'cyan') {
 }
 
 /**
- * Render welcome banner box
+ * Strip ANSI escape sequences to compute visual character length
  */
-export function renderBanner({ sessionId, mode, model, serverUrl, gitBranch = 'clean' }) {
-  const width = 64;
-  const line = '─'.repeat(width);
-  const modeBadge = mode === 'plan' ? `${c.yellow}[PLAN]${c.reset}` : `${c.green}[BUILD]${c.reset}`;
-
-  console.log(`\n${c.cyan}┌${line}┐${c.reset}`);
-  console.log(`${c.cyan}│${c.reset}  ${c.bold}${c.brightWhite}✦ Nexus Coding Agent CLI${c.reset} ${c.dim}v0.1.0${c.reset}${' '.repeat(width - 32)}${c.cyan}│${c.reset}`);
-  console.log(`${c.cyan}│${c.reset}  ${c.dim}Mode:${c.reset} ${modeBadge}  ${c.dim}Model:${c.reset} ${c.cyan}${model}${c.reset}  ${c.dim}Branch:${c.reset} ${c.magenta}${gitBranch}${c.reset}${' '.repeat(Math.max(0, width - 42 - model.length - gitBranch.length))}${c.cyan}│${c.reset}`);
-  console.log(`${c.cyan}│${c.reset}  ${c.dim}Session:${c.reset} ${c.gray}${sessionId}${c.reset}${' '.repeat(Math.max(0, width - 11 - sessionId.length))}${c.cyan}│${c.reset}`);
-  console.log(`${c.cyan}│${c.reset}  ${c.dim}Type ${c.bold}/${c.reset}${c.dim} or press ${c.bold}Tab${c.reset}${c.dim} for commands • Type your prompt to code${c.reset}${' '.repeat(Math.max(0, width - 64))}${c.cyan}│${c.reset}`);
-  console.log(`${c.cyan}└${line}┘${c.reset}\n`);
+export function stripAnsi(str) {
+  return String(str || '').replace(/\x1b\[[0-9;]*m/g, '');
 }
 
 /**
- * Render complete categorized command menu
+ * Pad a visual string considering ANSI codes
+ */
+export function padVisual(str, targetLen, align = 'left') {
+  const visualLen = stripAnsi(str).length;
+  const diff = Math.max(0, targetLen - visualLen);
+  const pad = ' '.repeat(diff);
+  return align === 'right' ? pad + str : str + pad;
+}
+
+/**
+ * Render Welcome Banner (Agency / Linear / Claude Code grade)
+ */
+export function renderBanner({ sessionId, mode, model, serverUrl, gitBranch = 'clean' }) {
+  const width = 76;
+  const innerWidth = width - 4; // between "│ " and " │"
+  const hr = '─'.repeat(width - 2);
+
+  const modeBadge = mode === 'plan'
+    ? `${c.bgYellow}${c.black}${c.bold} PLAN ${c.reset}`
+    : `${c.bgGreen}${c.black}${c.bold} BUILD ${c.reset}`;
+
+  const topBrand = `${c.bold}${c.brightWhite}✦ NEXUS CODING AGENT${c.reset} ${c.dim}v0.1.0${c.reset}`;
+  const topStatus = `${c.green}● ONLINE${c.reset} ${modeBadge}`;
+  const row1Gap = Math.max(1, innerWidth - stripAnsi(topBrand).length - stripAnsi(topStatus).length);
+
+  const row2Col1 = `${c.dim}Model:${c.reset} ${c.cyan}${c.bold}${model}${c.reset}`;
+  const row2Col2 = `${c.dim}Git:${c.reset} ${c.magenta} ${gitBranch}${c.reset}`;
+  const row2Col3 = `${c.dim}Endpoint:${c.reset} ${c.slate}${serverUrl.replace(/^http:\/\//, '')}${c.reset}`;
+  const row2Content = `${row2Col1}   ${row2Col2}   ${row2Col3}`;
+
+  const shortSession = sessionId && sessionId.length > 28 ? sessionId.slice(0, 26) + '…' : (sessionId || 'active');
+  const row3Col1 = `${c.dim}Session:${c.reset} ${c.slate}${shortSession}${c.reset}`;
+  const row3Col2 = `${c.dim}Permissions:${c.reset} ${c.amber}Smart Guardrails${c.reset}`;
+  const row3Content = `${row3Col1}   ${row3Col2}`;
+
+  const hint1 = `${c.dim}Type your prompt to write code • Enter ${c.bold}${c.cyan}/${c.reset}${c.dim} or press ${c.bold}${c.cyan}[Tab]${c.reset}${c.dim} for slash commands${c.reset}`;
+
+  console.log(`\n${c.cyan}╭${hr}╮${c.reset}`);
+  console.log(`${c.cyan}│${c.reset}  ${topBrand}${' '.repeat(row1Gap)}${topStatus}  ${c.cyan}│${c.reset}`);
+  console.log(`${c.cyan}├${hr}┤${c.reset}`);
+  console.log(`${c.cyan}│${c.reset}  ${padVisual(row2Content, innerWidth)}  ${c.cyan}│${c.reset}`);
+  console.log(`${c.cyan}│${c.reset}  ${padVisual(row3Content, innerWidth)}  ${c.cyan}│${c.reset}`);
+  console.log(`${c.cyan}│${c.reset}${' '.repeat(innerWidth + 2)}${c.cyan}│${c.reset}`);
+  console.log(`${c.cyan}│${c.reset}  ${padVisual(hint1, innerWidth)}  ${c.cyan}│${c.reset}`);
+  console.log(`${c.cyan}╰${hr}╯${c.reset}\n`);
+}
+
+/**
+ * Render complete categorized command menu in high-density 2-column card
  */
 export function renderCommandList() {
-  console.log(`\n${c.bold}${c.cyan}AVAILABLE SLASH COMMANDS${c.reset}`);
-  console.log(`${c.gray}Press Tab to autocomplete commands at any time.${c.reset}\n`);
+  const width = 80;
+  const hr = '─'.repeat(width - 2);
+  const colW = 38;
 
-  const categories = [
-    {
-      name: '🔄 MODES',
-      commands: [
-        { cmd: '/plan', desc: 'Switch to read-only PLAN mode (no file edits or destructive bash)' },
-        { cmd: '/build', desc: 'Switch to BUILD mode (full execution: write, edit, bash)' }
-      ]
-    },
-    {
-      name: '🧠 MODEL & CONTEXT',
-      commands: [
-        { cmd: '/model [name]', desc: 'Switch LLM model or show current model' },
-        { cmd: '/compact', desc: 'Manually compact conversation history to save tokens' },
-        { cmd: '/cost', desc: 'View token usage stats and estimated cost breakdown' }
-      ]
-    },
-    {
-      name: '📂 WORKSPACE & GIT',
-      commands: [
-        { cmd: '/diff', desc: 'View unstaged & staged workspace git diff' },
-        { cmd: '/undo', desc: 'Revert workspace to previous git checkpoint' },
-        { cmd: '/redo', desc: 'Re-apply next git checkpoint in history' },
-        { cmd: '/checkpoints', desc: 'List all git checkpoints captured in this session' },
-        { cmd: '/checkpoint [l]', desc: 'Create a manual named checkpoint (e.g. /checkpoint before-refactor)' }
-      ]
-    },
-    {
-      name: '💬 SESSION MANAGEMENT',
-      commands: [
-        { cmd: '/sessions', desc: 'List all saved sessions with token counts' },
-        { cmd: '/resume <id>', desc: 'Resume a saved session by ID' },
-        { cmd: '/new', desc: 'Start a brand new conversation session' },
-        { cmd: '/export [path]', desc: 'Export current session to self-contained HTML file' }
-      ]
-    },
-    {
-      name: '🛠️ SYSTEM & DIAGNOSTICS',
-      commands: [
-        { cmd: '/doctor', desc: 'Run environment and workspace diagnostic health check' },
-        { cmd: '/init', desc: 'Verify or scaffold .agent/ configuration in current folder' },
-        { cmd: '/clear', desc: 'Clear terminal screen' },
-        { cmd: '/help', desc: 'Show this command menu' },
-        { cmd: '/exit', desc: 'Exit Nexus CLI (or quit / exit)' }
-      ]
-    }
+  const leftCommands = [
+    { cmd: '/plan', cat: 'MODE', desc: 'Read-only mode (block writes)' },
+    { cmd: '/build', cat: 'MODE', desc: 'Full execution (write/bash)' },
+    { cmd: '/diff', cat: 'GIT', desc: 'Show workspace git diff' },
+    { cmd: '/undo', cat: 'GIT', desc: 'Revert last git step' },
+    { cmd: '/redo', cat: 'GIT', desc: 'Re-apply reverted step' },
+    { cmd: '/checkpoints', cat: 'GIT', desc: 'List git checkpoints' },
+    { cmd: '/checkpoint [l]', cat: 'GIT', desc: 'Create manual checkpoint' },
+    { cmd: '/doctor', cat: 'SYS', desc: 'System & env diagnostic' },
+    { cmd: '/init', cat: 'SYS', desc: 'Scaffold .agent/ config' },
+    { cmd: '/clear', cat: 'UI', desc: 'Clear terminal screen' }
   ];
 
-  for (const cat of categories) {
-    console.log(`${c.bold}${cat.name}${c.reset}`);
-    for (const item of cat.commands) {
-      const paddedCmd = item.cmd.padEnd(18, ' ');
-      console.log(`  ${c.cyan}${paddedCmd}${c.reset} ${c.dim}—${c.reset} ${item.desc}`);
-    }
-    console.log('');
+  const rightCommands = [
+    { cmd: '/model [name]', cat: 'MODEL', desc: 'Switch or view active LLM' },
+    { cmd: '/cost', cat: 'MODEL', desc: 'Token usage & USD pricing' },
+    { cmd: '/compact', cat: 'MODEL', desc: 'Prune chat history for tokens' },
+    { cmd: '/sessions', cat: 'SES', desc: 'List all saved sessions' },
+    { cmd: '/resume <id>', cat: 'SES', desc: 'Resume session by ID' },
+    { cmd: '/new', cat: 'SES', desc: 'Start clean new session' },
+    { cmd: '/export [path]', cat: 'SES', desc: 'Export session to dark HTML' },
+    { cmd: '/help', cat: 'HELP', desc: 'Show this command palette' },
+    { cmd: '/exit', cat: 'SYS', desc: 'Exit CLI session' }
+  ];
+
+  const formatItem = (item) => {
+    if (!item) return ' '.repeat(colW);
+    const cmdStr = `${c.cyan}${c.bold}${item.cmd.padEnd(15, ' ')}${c.reset}`;
+    const descStr = `${c.dim}${item.desc}${c.reset}`;
+    return padVisual(`${cmdStr} ${descStr}`, colW);
+  };
+
+  console.log(`\n${c.cyan}╭── ✦ AVAILABLE SLASH COMMANDS ──────────────────────────────────────────────╮${c.reset}`);
+  console.log(`${c.cyan}│${c.reset}  ${c.dim}Press ${c.bold}${c.cyan}[Tab]${c.reset}${c.dim} anytime to autocomplete commands or arguments${c.reset}${' '.repeat(16)}${c.cyan}│${c.reset}`);
+  console.log(`${c.cyan}├──────────────────────────────────────┬───────────────────────────────────────┤${c.reset}`);
+  console.log(`${c.cyan}│${c.reset}  ${c.bold}MODES & GIT OPERATIONS             ${c.reset} ${c.cyan}│${c.reset}  ${c.bold}MODEL, SESSIONS & SYSTEM            ${c.reset} ${c.cyan}│${c.reset}`);
+  console.log(`${c.cyan}├──────────────────────────────────────┼───────────────────────────────────────┤${c.reset}`);
+
+  const maxRows = Math.max(leftCommands.length, rightCommands.length);
+  for (let i = 0; i < maxRows; i++) {
+    const left = formatItem(leftCommands[i]);
+    const right = formatItem(rightCommands[i]);
+    console.log(`${c.cyan}│${c.reset}  ${left} ${c.cyan}│${c.reset}  ${right} ${c.cyan}│${c.reset}`);
   }
+
+  console.log(`${c.cyan}╰──────────────────────────────────────┴───────────────────────────────────────╯${c.reset}\n`);
+}
+
+/**
+ * Render Tool Execution Card
+ */
+export function renderToolCard(name, args, output, durationSec = 0, isSuccess = true) {
+  const width = 74;
+  const hr = '─'.repeat(width - 2);
+  const argStr = JSON.stringify(args || {});
+  const displayArg = argStr.length > 56 ? argStr.slice(0, 54) + '…' : argStr;
+
+  console.log(`\n  ${c.slate}┌── ⚙️  ${c.bold}${c.cyan}${name}${c.reset} ${c.dim}${displayArg}${c.reset}`);
+  
+  if (output) {
+    const lines = String(output).split(/\r?\n/).slice(0, 6);
+    for (const l of lines) {
+      const trimmed = l.length > 68 ? l.slice(0, 66) + '…' : l;
+      console.log(`  ${c.slate}│${c.reset}  ${c.dim}${trimmed}${c.reset}`);
+    }
+    if (String(output).split(/\r?\n/).length > 6) {
+      console.log(`  ${c.slate}│${c.reset}  ${c.dim}... (output truncated)${c.reset}`);
+    }
+  }
+
+  const status = isSuccess
+    ? `${c.green}✔ Completed in ${durationSec}s${c.reset}`
+    : `${c.red}✖ Failed in ${durationSec}s${c.reset}`;
+
+  console.log(`  ${c.slate}└──${c.reset} ${status}\n`);
+}
+
+/**
+ * Render Security Confirmation Card
+ */
+export function renderSecurityPrompt({ tool, args, reason }) {
+  const width = 74;
+  const hr = '─'.repeat(width - 2);
+  const argsFormatted = JSON.stringify(args || {}, null, 2);
+
+  console.log(`\n${c.rose}╭── 🛑 SECURITY GUARDRAIL : AUTHORIZATION REQUIRED ──────────────────────────╮${c.reset}`);
+  console.log(`${c.rose}│${c.reset}  The agent is requesting execution of a potentially sensitive operation.   ${c.rose}│${c.reset}`);
+  console.log(`${c.rose}├${hr}┤${c.reset}`);
+  console.log(`${c.rose}│${c.reset}  ${c.bold}Tool:${c.reset}    ${c.cyan}${c.bold}${tool}${c.reset}`);
+  if (reason) {
+    console.log(`${c.rose}│${c.reset}  ${c.bold}Reason:${c.reset}  ${c.amber}${reason}${c.reset}`);
+  }
+  console.log(`${c.rose}│${c.reset}  ${c.bold}Args:${c.reset}    ${c.dim}${JSON.stringify(args || {})}${c.reset}`);
+  console.log(`${c.rose}├${hr}┤${c.reset}`);
+  console.log(`${c.rose}│${c.reset}  Press ${c.bold}${c.green}[Y]${c.reset} to allow this turn  │  Press ${c.bold}${c.red}[N]${c.reset} to reject and abort       ${c.rose}│${c.reset}`);
+  console.log(`${c.rose}╰${hr}╯${c.reset}`);
 }
 
 /**
  * Render diagnostic health report (/doctor)
  */
 export function renderDoctorReport(data) {
-  console.log(`\n${c.bold}${c.cyan}🏥 NEXUS DIAGNOSTIC REPORT${c.reset}`);
-  console.log('─'.repeat(50));
+  const width = 76;
+  const hr = '─'.repeat(width - 2);
 
-  const check = (ok, label, detail) => {
-    const mark = ok ? `${c.green}✔ OK   ${c.reset}` : `${c.red}✖ FAIL ${c.reset}`;
-    console.log(`${mark} ${c.bold}${label.padEnd(16)}${c.reset} : ${detail}`);
+  console.log(`\n${c.cyan}╭── 🏥 SYSTEM DIAGNOSTIC HEALTH CHECK ───────────────────────────────────────╮${c.reset}`);
+  console.log(`${c.cyan}│${c.reset}  ${c.bold}Component${c.reset}${' '.repeat(10)}${c.bold}Status${c.reset}${' '.repeat(4)}${c.bold}Details${c.reset}${' '.repeat(width - 39)}${c.cyan}│${c.reset}`);
+  console.log(`${c.cyan}├${hr}┤${c.reset}`);
+
+  const row = (name, ok, detail, warn = false) => {
+    const mark = ok ? `${c.green}✔ OK   ${c.reset}` : (warn ? `${c.yellow}ℹ INFO ${c.reset}` : `${c.red}✖ FAIL ${c.reset}`);
+    const namePadded = name.padEnd(18, ' ');
+    const detailPadded = padVisual(detail, width - 33);
+    console.log(`${c.cyan}│${c.reset}  ${c.bold}${namePadded}${c.reset}${mark} ${detailPadded} ${c.cyan}│${c.reset}`);
   };
 
-  check(data.nodeOk, 'Node.js', `${process.version} (min >=20.0.0 required)`);
-  check(data.gitOk, 'Git Repository', data.gitStatus);
-  check(data.dockerOk, 'Docker Sandbox', data.dockerStatus);
-  check(data.modelOk, 'Active Model', `${data.model} (Provider: ${data.provider})`);
-  check(data.apiKeyOk, 'API Key', data.apiKeyStatus);
-  check(data.toolsCount > 0, 'Loaded Tools', `${data.toolsCount} registered tools`);
-  check(data.agentsCount >= 0, 'Subagents', `${data.agentsCount} custom subagents (.agent/agents/)`);
-  check(data.auditOk, 'Audit Log', data.auditStatus);
+  row('Node.js Runtime', data.nodeOk, `${process.version} (min >=20 required)`);
+  row('Git Repository', data.gitOk, data.gitStatus);
+  row('Docker Sandbox', data.dockerOk, data.dockerStatus, !data.dockerOk);
+  row('Active Model', data.modelOk, `${data.model} (${data.provider})`);
+  row('API Credentials', data.apiKeyOk, data.apiKeyStatus);
+  row('Tool Registry', data.toolsCount > 0, `${data.toolsCount} registered operational tools`);
+  row('Custom Subagents', data.agentsCount >= 0, `${data.agentsCount} agents loaded (.agent/agents/)`);
+  row('Audit Logging', data.auditOk, data.auditStatus);
 
-  console.log('─'.repeat(50));
-  if (data.allHealthy) {
-    console.log(`${c.green}✔ All core systems operational.${c.reset}\n`);
-  } else {
-    console.log(`${c.yellow}⚠️ Some optional components require attention (see above).${c.reset}\n`);
-  }
+  console.log(`${c.cyan}├${hr}┤${c.reset}`);
+  const summary = data.allHealthy
+    ? `${c.green}✔ All core operational subsystems are online and healthy.${c.reset}`
+    : `${c.amber}⚠️  Some optional subsystems are running in fallback mode.${c.reset}`;
+  console.log(`${c.cyan}│${c.reset}  ${padVisual(summary, width - 4)}  ${c.cyan}│${c.reset}`);
+  console.log(`${c.cyan}╰${hr}╯${c.reset}\n`);
 }
 
 /**
@@ -231,29 +330,37 @@ export function renderCostReport(session, modelConfig) {
   const outCost = ((compTok / 1_000_000) * outRate).toFixed(4);
   const totalCost = (parseFloat(inCost) + parseFloat(outCost)).toFixed(4);
 
-  console.log(`\n${c.bold}${c.cyan}📊 SESSION USAGE & COST REPORT${c.reset}`);
-  console.log('─'.repeat(48));
-  console.log(`  ${c.dim}Model:${c.reset}            ${c.bold}${modelConfig.name || session.model}${c.reset}`);
-  console.log(`  ${c.dim}Prompt Tokens:${c.reset}    ${c.bold}${promptTok.toLocaleString()}${c.reset} ${c.dim}(rate: $${inRate}/1M)${c.reset}`);
-  console.log(`  ${c.dim}Comp. Tokens:${c.reset}     ${c.bold}${compTok.toLocaleString()}${c.reset} ${c.dim}(rate: $${outRate}/1M)${c.reset}`);
-  console.log(`  ${c.dim}Total Tokens:${c.reset}     ${c.bold}${c.cyan}${totalTok.toLocaleString()}${c.reset}`);
-  console.log('─'.repeat(48));
+  const width = 74;
+  const hr = '─'.repeat(width - 2);
+
+  console.log(`\n${c.cyan}╭── 📊 SESSION TOKEN USAGE & COST BREAKDOWN ────────────────────────────────╮${c.reset}`);
+  console.log(`${c.cyan}│${c.reset}  ${c.dim}Model:${c.reset}               ${c.bold}${c.brightWhite}${modelConfig.name || session.model}${c.reset}`);
+  console.log(`${c.cyan}│${c.reset}  ${c.dim}Prompt Tokens (In):${c.reset}  ${c.bold}${promptTok.toLocaleString()}${c.reset} tokens ${c.dim}(rate: $${inRate}/1M)${c.reset}`);
+  console.log(`${c.cyan}│${c.reset}  ${c.dim}Comp. Tokens (Out):${c.reset}  ${c.bold}${compTok.toLocaleString()}${c.reset} tokens ${c.dim}(rate: $${outRate}/1M)${c.reset}`);
+  console.log(`${c.cyan}│${c.reset}  ${c.dim}Total Context:${c.reset}       ${c.bold}${c.cyan}${totalTok.toLocaleString()}${c.reset} tokens`);
+  console.log(`${c.cyan}├${hr}┤${c.reset}`);
+
   if (inRate > 0 || outRate > 0) {
-    console.log(`  ${c.dim}Est. Input Cost:${c.reset}  $${inCost}`);
-    console.log(`  ${c.dim}Est. Output Cost:${c.reset} $${outCost}`);
-    console.log(`  ${c.dim}Total Est. Cost:${c.reset}  ${c.bold}${c.green}$${totalCost} USD${c.reset}`);
+    console.log(`${c.cyan}│${c.reset}  ${c.dim}Est. Prompt Cost:${c.reset}    $${inCost} USD`);
+    console.log(`${c.cyan}│${c.reset}  ${c.dim}Est. Output Cost:${c.reset}    $${outCost} USD`);
+    console.log(`${c.cyan}│${c.reset}  ${c.bold}Total Estimated:${c.reset}     ${c.bold}${c.emerald}$${totalCost} USD${c.reset}`);
   } else {
-    console.log(`  ${c.dim}Est. Cost:${c.reset}        ${c.green}Free tier / Zero priced model${c.reset}`);
+    console.log(`${c.cyan}│${c.reset}  ${c.bold}Pricing Tier:${c.reset}        ${c.emerald}Zero priced / Local or Free Tier${c.reset}`);
   }
-  console.log('─'.repeat(48) + '\n');
+
+  console.log(`${c.cyan}╰${hr}╯${c.reset}\n`);
 }
 
 export default {
   c,
   Spinner,
   badge,
+  stripAnsi,
+  padVisual,
   renderBanner,
   renderCommandList,
+  renderToolCard,
+  renderSecurityPrompt,
   renderDoctorReport,
   renderCostReport
 };
