@@ -26,6 +26,7 @@ import {
 } from './core/ui.js';
 import { promptWithAutocomplete, promptSelect, promptText, promptSecret, COMMANDS_REGISTRY } from './core/prompt_input.js';
 import { addProvider, addLocalProvider, connectProvider, disconnectProvider, getDefaultModelSelection, getProviderCatalog, getProviderPickerCatalog, listAllModels, listProviderModels, removeProvider } from './core/providers/index.js';
+import { connectMallssNexusRoute, revokeOAuthProvider } from './core/providers/oauth.js';
 
 function loadEnv() {
   const envPath = path.resolve(process.cwd(), '.env');
@@ -675,7 +676,7 @@ async function runInteractive(parsed) {
         for (const provider of providers) {
           console.log('  • ' + provider.label + ' (' + provider.id + ')' +
             (provider.active ? ' ◀ active' : '') +
-            ' — ' + (provider.configured ? 'API key ready' : 'missing ' + provider.keyVariable) +
+            ' — ' + (provider.configured ? (provider.authFlow === 'oauth2' ? 'OAuth connected' : 'API key ready') : 'missing ' + provider.keyVariable) +
             ' — ' + provider.baseUrl);
         }
         console.log('');
@@ -744,6 +745,70 @@ async function runInteractive(parsed) {
 
       const provider = providers.find(item => item.id === selectedProvider.id);
       if (!provider) continue;
+      if (provider.authFlow === 'oauth2') {
+        if (provider.connected) {
+          const action = await promptSelect({
+            title: provider.label.toUpperCase(),
+            options: [
+              { label: 'Keep current connection', desc: 'Use the saved browser session', active: true },
+              { label: 'Reconnect account', desc: 'Authorize NexusCode in your browser' },
+              { label: 'Disconnect', desc: 'Revoke the OAuth session and clear local tokens' }
+            ],
+            footer: '↑↓ navigate • Enter confirm • Esc cancel'
+          });
+          if (action < 0 || action === 0) {
+            try {
+              const models = await listProviderModels(provider.id);
+              console.log('\n  ' + provider.label + ' is connected. ' + models.length + ' models available. Use /models to choose one.\n');
+            } catch (error) {
+              console.log('\n  ' + c.yellow + error.message + c.reset + '\n');
+            }
+            continue;
+          }
+          if (action === 2) {
+            try {
+              await revokeOAuthProvider(provider.id);
+              disconnectProvider(provider.id);
+              console.log('\n  Disconnected ' + provider.label + '. Its OAuth session was revoked.\n');
+            } catch (error) {
+              disconnectProvider(provider.id);
+              console.log('\n  ' + c.yellow + 'Local tokens cleared. Remote revocation could not be confirmed: ' + error.message + c.reset + '\n');
+            }
+            continue;
+          }
+        }
+
+        try {
+          addProvider({
+            id: provider.id,
+            label: provider.label,
+            baseUrl: provider.baseUrl,
+            protocol: provider.protocol,
+            authFlow: 'oauth2'
+          });
+          console.log('\n  Opening your browser for Mallss Nexus Route sign-in...');
+          const account = await connectMallssNexusRoute({ providerId: provider.id });
+          let models = [];
+          try { models = await listProviderModels(provider.id); } catch {}
+          if (models.length) {
+            addProvider({
+              id: provider.id,
+              label: provider.label,
+              baseUrl: provider.baseUrl,
+              protocol: provider.protocol,
+              authFlow: 'oauth2',
+              defaultModel: models[0].model
+            });
+          }
+          console.log('\n  ' + c.green + 'Connected to ' + provider.label + c.reset +
+            (account?.email ? ' as ' + c.cyan + account.email + c.reset : '') + '.');
+          console.log('  ' + (models.length ? models.length + ' models available. Use /models to choose one.' : 'OAuth connected. Use /models to refresh the model list.') + '\n');
+        } catch (error) {
+          console.log('\n  ' + c.red + 'OAuth connection failed: ' + error.message + c.reset + '\n');
+        }
+        continue;
+      }
+
       if (provider.connected) {
         const action = await promptSelect({
           title: provider.label.toUpperCase(),

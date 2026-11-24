@@ -1,4 +1,5 @@
 import { createProvider, getProviderCatalog, parseModelConfig } from './providers/index.js';
+import { getOAuthAccessToken } from './providers/oauth.js';
 
 export function getLLMConfig(customConfig = {}) {
   return {
@@ -10,14 +11,15 @@ export function getLLMConfig(customConfig = {}) {
 
 async function initializeProvider(modelStr = '', customOptions = {}) {
   const parsed = parseModelConfig(modelStr);
+  const apiKey = parsed.authFlow === 'oauth2' ? await getOAuthAccessToken(parsed.provider) : parsed.apiKey;
   const provider = createProvider(parsed.provider, {
     ...customOptions,
     protocol: parsed.protocol,
     baseUrl: parsed.baseUrl,
-    apiKey: parsed.apiKey,
+    apiKey,
     model: parsed.model
   });
-  return { provider, apiKey: parsed.apiKey, config: parsed };
+  return { provider, apiKey, config: parsed };
 }
 
 export async function providerChat(messages, tools = [], options = {}) {

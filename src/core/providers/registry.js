@@ -10,6 +10,7 @@ export const PROVIDER_PRESETS = [
   { id: 'anthropic', label: 'Anthropic', baseUrl: 'https://api.anthropic.com', protocol: 'anthropic', category: 'Popular' },
   { id: 'gemini', label: 'Google Gemini', baseUrl: 'https://generativelanguage.googleapis.com', protocol: 'gemini', category: 'Popular' },
   { id: 'openrouter', label: 'OpenRouter', baseUrl: 'https://openrouter.ai/api/v1', protocol: 'openai-compatible', category: 'Popular' },
+  { id: 'mallss-nexus-route', label: 'Mallss Nexus Route', baseUrl: 'https://ai-router.mallss-nexus.sbs/v1', protocol: 'openai-compatible', category: 'AI Gateways', authFlow: 'oauth2' },
   { id: 'groq', label: 'Groq', baseUrl: 'https://api.groq.com/openai/v1', protocol: 'openai-compatible', category: 'Popular' },
   { id: 'deepseek', label: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1', protocol: 'openai-compatible', category: 'Popular' },
   { id: 'mistral', label: 'Mistral AI', baseUrl: 'https://api.mistral.ai/v1', protocol: 'openai-compatible', category: 'Services' },
@@ -102,7 +103,8 @@ function normalizeProvider(provider) {
     protocol,
     defaultModel,
     models,
-    source: provider.source || 'config'
+    source: provider.source || 'config',
+    authFlow: provider.authFlow === 'oauth2' ? 'oauth2' : 'api-key'
   };
 }
 
@@ -210,6 +212,7 @@ function resolveCredential(provider) {
   const credentials = readCredentials();
   const localValue = credentials[provider?.id];
   if (typeof localValue === 'string' && localValue.trim()) return localValue.trim();
+  if (localValue && typeof localValue === 'object' && typeof localValue.accessToken === 'string' && localValue.accessToken.trim()) return localValue.accessToken.trim();
   if (provider?.apiKeyEnv && process.env[provider.apiKeyEnv]?.trim()) {
     return process.env[provider.apiKeyEnv].trim();
   }
@@ -232,7 +235,7 @@ export function getProviderCatalog(activeModel = '') {
       ...provider,
       configured,
       connected: configured,
-      keyVariable: provider.apiKeyEnv || 'local credential',
+      keyVariable: provider.authFlow === 'oauth2' ? 'browser account' : (provider.apiKeyEnv || 'local credential'),
       active: provider.id === activeProviderId
     };
   });
@@ -259,7 +262,7 @@ export function getProviderPickerCatalog(activeModel = '') {
       ...merged,
       configured: Boolean(key),
       connected: Boolean(key),
-      keyVariable: merged.apiKeyEnv || 'local credential',
+      keyVariable: merged.authFlow === 'oauth2' ? 'browser account' : (merged.apiKeyEnv || 'local credential'),
       active: merged.id === activeProviderId,
       detail: merged.baseUrl
     };
@@ -280,13 +283,14 @@ function upsertProvider(metadata) {
     apiKeyEnv: provider.apiKeyEnv,
     protocol: provider.protocol,
     defaultModel: provider.defaultModel,
-    models: provider.models
+    models: provider.models,
+    authFlow: provider.authFlow
   });
   writeRegistry(providers);
   return provider;
 }
 
-export function addProvider({ id, label, baseUrl, apiKeyEnv = '', defaultModel = '', models = [], protocol = 'openai-compatible' } = {}) {
+export function addProvider({ id, label, baseUrl, apiKeyEnv = '', defaultModel = '', models = [], protocol = 'openai-compatible', authFlow = 'api-key' } = {}) {
   const normalizedId = String(id || '').trim().toLowerCase();
   if (!PROVIDER_ID.test(normalizedId)) {
     throw new Error('Provider ID must use lowercase letters, numbers, hyphens, or underscores.');
@@ -298,6 +302,7 @@ export function addProvider({ id, label, baseUrl, apiKeyEnv = '', defaultModel =
   if (!SUPPORTED_PROTOCOLS.has(protocol)) {
     throw new Error('Unsupported provider protocol: ' + protocol);
   }
+  if (!['api-key', 'oauth2'].includes(authFlow)) throw new Error('Unsupported provider authentication flow: ' + authFlow);
   upsertProvider({
     id: normalizedId,
     label: String(label || normalizedId).trim() || normalizedId,
@@ -305,7 +310,8 @@ export function addProvider({ id, label, baseUrl, apiKeyEnv = '', defaultModel =
     apiKeyEnv: envName,
     protocol,
     defaultModel: String(defaultModel || '').trim(),
-    models: Array.isArray(models) ? models : []
+    models: Array.isArray(models) ? models : [],
+    authFlow
   });
   return getProviderConfig(normalizedId);
 }
@@ -336,6 +342,49 @@ export function connectProvider(providerId, apiKey) {
   credentials[id] = secret;
   writeCredentials(credentials);
   return getProviderConfig(id);
+}
+
+export function saveOAuthCredential(providerId, tokenBundle) {
+  const id = String(providerId || '').trim().toLowerCase();
+  if (!PROVIDER_ID.test(id)) throw new Error('Invalid provider ID for OAuth credentials.');
+  const accessToken = String(tokenBundle?.access_token || tokenBundle?.accessToken || '').trim();
+  const refreshToken = String(tokenBundle?.refresh_token || tokenBundle?.refreshToken || '').trim();
+  const expiresAt = Number(tokenBundle?.expires_at || tokenBundle?.expiresAt ||
+    (Date.now() + Math.max(1, Number(tokenBundle?.expires_in || 0)) * 1000));
+  if (!accessToken || !refreshToken || !Number.isFinite(expiresAt)) {
+    throw new Error('OAuth response did not contain valid access and refresh tokens.');
+  }
+  const credentials = readCredentials();
+  credentials[id] = {
+    type: 'oauth2',
+    accessToken,
+    refreshToken,
+    expiresAt,
+    user: tokenBundle.user && typeof tokenBundle.user === 'object' ? tokenBundle.user : null
+  };
+  writeCredentials(credentials);
+  return { accessToken, refreshToken, expiresAt, user: credentials[id].user };
+}
+
+export function getOAuthCredential(providerId) {
+  const id = String(providerId || '').trim().toLowerCase();
+  const value = readCredentials()[id];
+  if (!value || typeof value !== 'object' || value.type !== 'oauth2') return null;
+  return {
+    accessToken: String(value.accessToken || ''),
+    refreshToken: String(value.refreshToken || ''),
+    expiresAt: Number(value.expiresAt || 0),
+    user: value.user && typeof value.user === 'object' ? value.user : null
+  };
+}
+
+export function clearOAuthCredential(providerId) {
+  const id = String(providerId || '').trim().toLowerCase();
+  const credentials = readCredentials();
+  if (!credentials[id] || typeof credentials[id] !== 'object' || credentials[id].type !== 'oauth2') return false;
+  delete credentials[id];
+  writeCredentials(credentials);
+  return true;
 }
 
 export function disconnectProvider(providerId) {
@@ -370,21 +419,26 @@ export function getDefaultModelSelection() {
 export async function listProviderModels(providerId) {
   const provider = getProviderConfig(providerId);
   if (!provider) throw new Error('Provider not found: ' + providerId);
-  if (!provider.apiKey) throw new Error('Connect ' + provider.label + ' first with /provider.');
+  let credential = provider.apiKey;
+  if (provider.authFlow === 'oauth2') {
+    const { getOAuthAccessToken } = await import('./oauth.js');
+    credential = await getOAuthAccessToken(providerId);
+  }
+  if (!credential) throw new Error('Connect ' + provider.label + ' first with /provider.');
   const baseUrl = provider.baseUrl.replace(/\/+$/, '');
   let response;
   if (provider.protocol === 'anthropic') {
     response = await fetch(baseUrl.replace(/\/v1$/, '') + '/v1/models', {
-      headers: { 'x-api-key': provider.apiKey, 'anthropic-version': '2023-06-01', Accept: 'application/json' }
+      headers: { 'x-api-key': credential, 'anthropic-version': '2023-06-01', Accept: 'application/json' }
     });
   } else if (provider.protocol === 'gemini') {
-    response = await fetch(baseUrl.replace(/\/v1beta$/, '') + '/v1beta/models?key=' + encodeURIComponent(provider.apiKey), {
+    response = await fetch(baseUrl.replace(/\/v1beta$/, '') + '/v1beta/models?key=' + encodeURIComponent(credential), {
       headers: { Accept: 'application/json' }
     });
   } else {
     response = await fetch(baseUrl + '/models', {
       method: 'GET',
-      headers: { Authorization: 'Bearer ' + provider.apiKey, Accept: 'application/json' }
+      headers: { Authorization: 'Bearer ' + credential, Accept: 'application/json' }
     });
   }
   if (!response.ok) {
