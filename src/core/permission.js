@@ -72,6 +72,17 @@ export class PermissionManager {
   }
 
   evaluate(toolName, args = {}, ctx = {}) {
+    const registeredTool = ctx.registry?.get(toolName);
+    const extensionTool = registeredTool?.source === 'plugin' || registeredTool?.source === 'mcp';
+
+    // Extension side effects are unknown, so they are not allowed in read-only plan mode.
+    if (ctx.mode === 'plan' && extensionTool) {
+      return {
+        action: 'deny',
+        reason: `Extension tool "${toolName}" is disabled in plan mode because its side effects are not known.`
+      };
+    }
+
     // Plan mode (read-only) enforcement
     if (ctx.mode === 'plan') {
       if (toolName === 'write_file' || toolName === 'edit_file') {
@@ -124,7 +135,7 @@ export class PermissionManager {
       };
     }
 
-    const defaultAction = ['write_file', 'edit_file', 'bash'].includes(toolName) ? 'ask' : 'allow';
+    const defaultAction = extensionTool || ['write_file', 'edit_file', 'bash'].includes(toolName) ? 'ask' : 'allow';
     const action = this.tools[toolName] || defaultAction;
     return {
       action,
