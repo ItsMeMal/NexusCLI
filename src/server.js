@@ -149,7 +149,7 @@ export function createNexusServer(options = {}) {
       }
 
       // 3b. PATCH /session/:id -> persist session settings
-      const sessionUpdateMatch = pathname.match(/^\\/session\\/([^/]+)$/);
+      const sessionUpdateMatch = pathname.match(new RegExp('^/session/([^/]+)$'));
       if (req.method === 'PATCH' && sessionUpdateMatch) {
         const sessionId = sessionUpdateMatch[1];
         if (activeRuns.has(sessionId)) {

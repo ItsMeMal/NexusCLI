@@ -610,7 +610,7 @@ function NexusTUIApp({ client, snapshotManager }) {
     // /help or just /
     if (trimmed === '/help' || trimmed === '/') {
       const helpText = `AVAILABLE COMMANDS:
-${ALL_COMMANDS.map(command => `${command.cmd.padEnd(14)} ${command.desc}`).join('\\n')}`;
+      \${ALL_COMMANDS.map(command => \`\${command.cmd.padEnd(14)} \${command.desc}\`).join('\n')}\`;
 
       setMessages(prev => [
         ...prev,

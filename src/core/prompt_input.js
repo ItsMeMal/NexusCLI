@@ -13,7 +13,6 @@ export const COMMANDS_REGISTRY = [
   { cmd: '/provider', cat: 'Model', desc: 'Open provider picker and switch the active LLM provider', needsArg: false },
   { cmd: '/cost', cat: 'Model', desc: 'View token usage stats and estimated cost breakdown', needsArg: false },
   { cmd: '/usage', cat: 'Model', desc: 'Alias for /cost', needsArg: false },
-  { cmd: '/usage', cat: 'Model', desc: 'Alias for /cost', needsArg: false },
   { cmd: '/compact', cat: 'Model', desc: 'Manually prune and compact conversation context', needsArg: false },
   { cmd: '/doctor', cat: 'System', desc: 'Run system & workspace diagnostic health checks', needsArg: false },
   { cmd: '/abort', cat: 'System', desc: 'Stop the currently running agent task', needsArg: false },

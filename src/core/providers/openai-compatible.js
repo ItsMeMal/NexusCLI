@@ -32,7 +32,7 @@ export class OpenAICompatibleProvider {
       return {
         normalized: true,
         id: toolCall.id || toolCall.name,
-        name: toolCall.function?.name || toolCall.name,
+        name: toolCall.function?.name || toolCall.name || '',
         arguments: toolCall.function?.arguments || '{}'
       };
     }
@@ -215,6 +215,7 @@ export class OpenAICompatibleProvider {
                   if (normalized) {
                     onToolStart?.({
                       id: normalized.id,
+                      index: tc.index,
                       name: normalized.name,
                       args: normalized.arguments
                     });

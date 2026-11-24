@@ -58,88 +58,95 @@ async function initializeProvider(modelStr = 'gpt-4o', customOptions = {}) {
  * @returns {Promise<Object>} Pesan final dari LLM dengan format yang konsisten
  */
 export async function providerChat(messages, tools = [], options = {}) {
-  const { provider, apiKey, config } = await initializeProvider(options.model || 'gpt-4o', options);
+  const { provider, config } = await initializeProvider(options.model || 'gpt-4o', options);
 
-  const {
-    onToken = options.onToken || (() => {}),
-    onToolStart = options.onToolStart || (() => {}),
-    onToolResult = options.onToolResult || (() => {}),
-    onDone = options.onDone || (() => {}),
-    onError = options.onError || ((err) => { throw err; }),
-    temperature = options.temperature
-  } = options;
+  const onToken = options.onToken || (() => {});
+  const onToolStart = options.onToolStart || (() => {});
+  const onToolResult = options.onToolResult || (() => {});
+  const onDone = options.onDone || (() => {});
+  const onError = options.onError || ((err) => { throw err; });
+  const toolCalls = new Map();
 
-  // Collect results
   let finalContent = '';
   let finalUsage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
-  let finished = false;
 
-  // Create async iterator from provider stream
-  const events = provider.provider.stream(
-    messages,
-    tools,
-    {
-      model: options.model,
-      temperature,
-      onToken: (content, normalizedUsage) => {
-        // Accumulate content
-        if (content) {
-          finalContent += content;
-        }
-        // Normalize and store usage
-        if (normalizedUsage && typeof normalizedUsage === 'object') {
-          finalUsage = {
-            prompt_tokens: (finalUsage.prompt_tokens || 0) + (normalizedUsage.prompt_tokens || 0),
-            completion_tokens: (finalUsage.completion_tokens || 0) + (normalizedUsage.completion_tokens || 0),
-            total_tokens: (finalUsage.total_tokens || 0) + (normalizedUsage.total_tokens || 0)
-          };
-        }
+  const events = provider.stream(messages, tools, {
+    model: config.model,
+    temperature: options.temperature,
+    signal: options.signal,
+    onToken: (content, normalizedUsage) => {
+      if (typeof content === 'string') {
+        finalContent += content;
         onToken(content);
-      },
-      onToolStart: (toolInfo) => {
-        onToolStart(toolInfo);
-      },
-      onToolResult: (toolOutput) => {
-        onToolResult(toolOutput);
-      },
-      onDone: (result) => {
-        // Merge usage dari result
-        if (result && result.usage) {
-          finalUsage = {
-            prompt_tokens: (finalUsage.prompt_tokens || 0) + (result.usage.prompt_tokens || 0),
-            completion_tokens: (finalUsage.completion_tokens || 0) + (result.usage.completion_tokens || 0),
-            total_tokens: (finalUsage.total_tokens || 0) + (result.usage.total_tokens || 0)
-          };
-        }
-        if (result && result.finishReason) {
-          finished = true;
-        }
-        onDone(result);
-      },
-      onError: (err) => {
-        onError(err);
-        throw err;
       }
-    }
-  );
 
-  // Wait for the stream to complete
-  // The provider stream is an async generator, we need to consume it
+      if (normalizedUsage && typeof normalizedUsage === 'object') {
+        finalUsage = {
+          prompt_tokens: normalizedUsage.prompt_tokens ?? finalUsage.prompt_tokens,
+          completion_tokens: normalizedUsage.completion_tokens ?? finalUsage.completion_tokens,
+          total_tokens: normalizedUsage.total_tokens ?? finalUsage.total_tokens
+        };
+      }
+    },
+    onToolStart: (toolInfo) => {
+      const key = Number.isInteger(toolInfo.index)
+        ? `index:${toolInfo.index}`
+        : (toolInfo.id || `name:${toolInfo.name || 'tool'}`);
+      const existing = toolCalls.get(key) || {
+        id: toolInfo.id || key,
+        name: '',
+        arguments: ''
+      };
+
+      if (toolInfo.id) existing.id = toolInfo.id;
+      if (toolInfo.name && toolInfo.name !== 'unknown') existing.name = toolInfo.name;
+      if (typeof toolInfo.args === 'string') {
+        existing.arguments += toolInfo.args;
+      } else if (toolInfo.args && typeof toolInfo.args === 'object') {
+        existing.arguments = JSON.stringify(toolInfo.args);
+      }
+
+      toolCalls.set(key, existing);
+      onToolStart(toolInfo);
+    },
+    onToolResult,
+    onDone: (result) => {
+      if (result?.usage && typeof result.usage === 'object') {
+        finalUsage = {
+          prompt_tokens: result.usage.prompt_tokens ?? finalUsage.prompt_tokens,
+          completion_tokens: result.usage.completion_tokens ?? finalUsage.completion_tokens,
+          total_tokens: result.usage.total_tokens ?? finalUsage.total_tokens
+        };
+      }
+      onDone(result);
+    },
+    onError
+  });
+
   try {
-    // Consume the generator
     for await (const event of events) {
-      // Events are handled via callbacks, so just wait for completion
+      // Provider implementations stream through callbacks and complete this iterator.
     }
   } catch (err) {
-    // Error already handled via onError callback
+    onError(err);
     throw err;
   }
 
-  // Return normalized message format consistent with original chat output
+  const normalizedToolCalls = Array.from(toolCalls.values())
+    .filter(call => call.name)
+    .map(call => ({
+      id: call.id,
+      type: 'function',
+      function: {
+        name: call.name,
+        arguments: call.arguments || '{}'
+      }
+    }));
+
   return {
     role: 'assistant',
     content: finalContent || null,
-    tool_calls: [], // Will be populated if there were tool calls
+    ...(normalizedToolCalls.length ? { tool_calls: normalizedToolCalls } : {}),
     usage: finalUsage
   };
 }

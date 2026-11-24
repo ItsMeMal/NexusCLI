@@ -161,7 +161,7 @@ export function parseModelConfig(configStr) {
   return {
     provider,
     model,
-    baseUrl: baseUrl.replace(/\\/+$/, ''),
+    baseUrl: baseUrl.replace(new RegExp('/+$'), ''),
     apiKey,
     credentialFile
   };
