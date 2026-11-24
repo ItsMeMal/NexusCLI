@@ -208,7 +208,7 @@ export function renderCommandList() {
 
   const rightCommands = [
     { cmd: '/model [name]', cat: 'MODEL', desc: 'Switch or view active LLM' },
-    { cmd: '/provider [cmd]', cat: 'MODEL', desc: 'Open the provider selection menu' },
+    { cmd: '/provider', cat: 'MODEL', desc: 'Open the provider selection menu' },
     { cmd: '/cost', cat: 'MODEL', desc: 'Token usage & USD pricing' },
     { cmd: '/usage', cat: 'MODEL', desc: 'Alias for /cost' },
     { cmd: '/compact', cat: 'MODEL', desc: 'Prune chat history for tokens' },
