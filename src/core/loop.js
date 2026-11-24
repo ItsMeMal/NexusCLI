@@ -36,6 +36,17 @@ export async function runAgentLoop({
   const permissionManager = ctx.permissionManager || PermissionManager.fromConfigFile(ctx.cwd);
   const snapshotManager = ctx.snapshotManager || new SessionSnapshotManager(ctx.cwd);
 
+  // Run message hooks once per agent turn, before the model sees the latest user message.
+  const latestUserMessage = [...messages].reverse().find(message => message?.role === 'user');
+  if (latestUserMessage && ctx.pluginManager) {
+    await ctx.pluginManager.runHook('on_message', {
+      message: latestUserMessage,
+      messages,
+      ctx,
+      workingDir: ctx.cwd || process.cwd()
+    });
+  }
+
   while (step < maxSteps) {
     if (ctx.abortSignal?.aborted) {
       const abortError = new Error('Session execution aborted by user.');
@@ -202,6 +213,18 @@ export async function runAgentLoop({
         continue;
       }
 
+      // Plugins may inspect or adjust arguments, but permission checks still run afterwards.
+      const beforeTool = {
+        name: toolName,
+        tool: registry.get(toolName),
+        args: parsedArgs || {},
+        ctx,
+        cancelled: false,
+        reason: ''
+      };
+      if (ctx.pluginManager) await ctx.pluginManager.runHook('before_tool', beforeTool);
+      parsedArgs = beforeTool.args || {};
+
       // 3. Capture snapshot before first modification in session
       if (toolName === 'write_file' || toolName === 'edit_file') {
         try {
@@ -213,7 +236,9 @@ export async function runAgentLoop({
 
       // 3. Evaluate permission
       let toolOutput;
-      const auth = await permissionManager.authorize(toolName, parsedArgs || {}, {
+      const auth = beforeTool.cancelled
+        ? { allowed: false, error: beforeTool.reason || `Tool "${toolName}" was cancelled by a plugin hook.` }
+        : await permissionManager.authorize(toolName, parsedArgs || {}, {
         ...ctx,
         externalContentRead,
         askUser: async ({ tool, args, reason }) => {
@@ -246,6 +271,18 @@ export async function runAgentLoop({
           toolOutput = `Error: Tool execution failed unexpectedly: ${err.message}`;
         }
       }
+
+      // Plugins can inspect or transform the completed result.
+      const afterTool = {
+        name: toolName,
+        tool: registry.get(toolName),
+        args: parsedArgs || {},
+        ctx,
+        allowed: auth.allowed,
+        output: String(toolOutput ?? '')
+      };
+      if (ctx.pluginManager) await ctx.pluginManager.runHook('after_tool', afterTool);
+      toolOutput = afterTool.output;
 
       // Redact secrets in tool output before sending to model
       toolOutput = redactSecrets(String(toolOutput ?? ''));
