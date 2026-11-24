@@ -27,6 +27,7 @@ import {
 import { promptWithAutocomplete, promptSelect, promptText, promptSecret, COMMANDS_REGISTRY } from './core/prompt_input.js';
 import { addProvider, addLocalProvider, connectProvider, disconnectProvider, getDefaultModelSelection, getProviderCatalog, getProviderPickerCatalog, listAllModels, listProviderModels, removeProvider } from './core/providers/index.js';
 import { connectMallssNexusRoute, revokeOAuthProvider } from './core/providers/oauth.js';
+import { CURRENT_VERSION, installLatestFromGitHub } from './core/updater.js';
 
 function loadEnv() {
   const envPath = path.resolve(process.cwd(), '.env');
@@ -606,7 +607,9 @@ async function runInteractive(parsed) {
             label: model.model,
             desc: model.id,
             category: model.providerLabel,
-            active: model.id === client.sessionData.model
+            desc: model.id,
+            active: model.id === client.sessionData.model,
+            status: model.id === client.sessionData.model ? 'ACTIVE' : ''
           })),
           footer: '↑↓ navigate • Enter select • Esc cancel'
         });
@@ -694,9 +697,10 @@ async function runInteractive(parsed) {
           category: provider.category,
           connected: provider.connected,
           active: provider.active,
+          status: provider.connected ? (provider.active ? 'ACTIVE' : 'CONNECTED') : 'SETUP',
           id: provider.id
         })),
-        { id: '__custom__', label: 'Custom OpenAI-compatible provider', desc: 'Connect a compatible API endpoint', category: 'Custom' }
+        { id: '__custom__', label: 'Custom OpenAI-compatible provider', desc: 'Connect a compatible API endpoint', category: 'Custom', status: 'CUSTOM' }
       ];
       const selectedIndex = await promptSelect({
         title: 'CONNECT PROVIDER',
@@ -925,6 +929,46 @@ async function runInteractive(parsed) {
           }
         }
         console.log(`${c.cyan}╰─────────────────────────────────────────────────────────────────────────────╯${c.reset}\n`);
+      }
+      continue;
+    }
+
+    // Install the latest source without changing the package's declared 0.1.2 version.
+    if (trimmed === '/update') {
+      const choice = await promptSelect({
+        title: 'NEXUSCODE UPDATE',
+        icon: '↻',
+        searchable: false,
+        options: [
+          { label: 'Update from GitHub main', desc: `Reinstall latest source • current v${CURRENT_VERSION}`, status: 'SOURCE' },
+          { label: 'Cancel', desc: 'Keep this installation unchanged' }
+        ],
+        footer: '↑↓ navigate • Enter continue • Esc cancel'
+      });
+      if (choice !== 0) continue;
+
+      const confirmation = await promptSelect({
+        title: 'CONFIRM UPDATE',
+        options: [
+          { label: 'Install latest main', desc: 'Runs npm install -g from the official NexusCode repository', status: 'INSTALL' },
+          { label: 'Go back', desc: 'Do not change this installation' }
+        ],
+        footer: 'The CLI must be restarted after the update'
+      });
+      if (confirmation !== 0) continue;
+
+      console.log(`\n  Updating NexusCode v${CURRENT_VERSION} from GitHub main...\n`);
+      try {
+        const result = await installLatestFromGitHub();
+        if (result.code === 0) {
+          console.log(`\n  ${c.green}✔ Update installed successfully.${c.reset}`);
+          console.log('  Restart NexusCode to load the updated files. Package version remains 0.1.2.\n');
+        } else {
+          console.log(`\n  ${c.red}✖ Update failed (exit code ${result.code}${result.signal ? ', signal ' + result.signal : ''}).${c.reset}`);
+          console.log('  Check the npm output above, then retry /update.\n');
+        }
+      } catch (error) {
+        console.log(`\n  ${c.red}✖ Could not start npm update: ${error.message}${c.reset}\n`);
       }
       continue;
     }
