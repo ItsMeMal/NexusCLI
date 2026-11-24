@@ -194,3 +194,35 @@ describe('Audit log', () => {
     fs.rmdirSync(tmpDir);
   });
 });
+
+// --- UI module tests ---
+import { Spinner, badge, c } from '../src/core/ui.js';
+
+describe('UI Module', () => {
+  test('badge generates formatted ANSI string', () => {
+    const b = badge('BUILD', 'green');
+    assert.ok(b.includes('BUILD'));
+    assert.ok(b.includes(c.reset));
+  });
+
+  test('Spinner starts and stops cleanly', () => {
+    const s = new Spinner('test task');
+    s.start('Thinking...');
+    assert.equal(s.active, true);
+    s.update('Running tool...');
+    assert.equal(s.text, 'Running tool...');
+    s.stop(true);
+    assert.equal(s.active, false);
+  });
+
+  test('Spinner succeed and fail methods', () => {
+    const s = new Spinner();
+    s.start('action');
+    s.succeed('done action');
+    assert.equal(s.active, false);
+
+    s.start('another');
+    s.fail('failed action');
+    assert.equal(s.active, false);
+  });
+});

@@ -6,6 +6,7 @@ import { buildSystemPrompt } from './core/prompt.js';
 import { SessionManager } from './core/session.js';
 import { SessionSnapshotManager } from './core/snapshot.js';
 import { loadEnv } from './core/config.js';
+import { estimateMessagesTokens, compactContextIfNeeded } from './core/context.js';
 
 export function createNexusServer(options = {}) {
   const workingDir = options.workingDir || process.cwd();
@@ -305,6 +306,40 @@ export function createNexusServer(options = {}) {
         broadcastEvent(sessionId, { type: 'done', reason: 'aborted' });
 
         sendJson(res, 200, { aborted: true, sessionId });
+        return;
+      }
+
+      // 8. POST /session/:id/compact -> manually trigger context compaction
+      const compactMatch = pathname.match(/^\/session\/([^/]+)\/compact$/);
+      if (req.method === 'POST' && compactMatch) {
+        const sessionId = compactMatch[1];
+        try {
+          const session = await sessionManager.loadSession(sessionId);
+          const beforeTokens = estimateMessagesTokens(session.messages);
+          const result = await compactContextIfNeeded(session.messages, session.model, { force: true });
+          if (result && (result.compacted || result.pruned)) {
+            session.messages = result.messages;
+            await sessionManager.saveSession(session);
+            const afterTokens = estimateMessagesTokens(session.messages);
+            sendJson(res, 200, {
+              success: true,
+              compacted: true,
+              beforeTokens,
+              afterTokens,
+              savedTokens: Math.max(0, beforeTokens - afterTokens)
+            });
+          } else {
+            sendJson(res, 200, {
+              success: true,
+              compacted: false,
+              beforeTokens,
+              afterTokens: beforeTokens,
+              message: 'Context history has few messages and is already compact.'
+            });
+          }
+        } catch (err) {
+          sendJson(res, 500, { error: `Compaction failed: ${err.message}` });
+        }
         return;
       }
 

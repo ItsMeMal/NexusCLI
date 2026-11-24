@@ -291,11 +291,31 @@ Nexus membuat checkpoint setiap kali ada perubahan di mode `build`:
 
 ---
 
-## Mode Operasi
+## Daftar Slash Command
 
-- `/plan`: Mode read-only. File modification (`write_file`, `edit_file`, destructive `bash`) diblokir.
-- `/build`: Mode eksekusi penuh.
-- `/undo`: Mengembalikan workspace ke kondisi snapshot git awal sesi.
+Ketik `/` lalu tekan **Enter** atau tekan tombol **Tab** di terminal kapan saja untuk autocompletion command:
+
+| Kategori | Command | Deskripsi |
+|---|---|---|
+| **Modes** | `/plan` | Mode read-only (eksekusi file modification diblokir) |
+| | `/build` | Mode default (eksekusi penuh: write, edit, bash) |
+| **Model & Context** | `/model [name]` | Lihat atau ganti model LLM aktif saat runtime |
+| | `/compact` | Ringkas riwayat percakapan secara manual untuk menghemat token |
+| | `/cost` / `/usage` | Laporan konsumsi token dan estimasi biaya per sesi |
+| **Workspace & Git** | `/diff` | Tampilkan git diff perubahan workspace saat ini |
+| | `/undo` | Kembalikan workspace ke checkpoint git sebelumnya |
+| | `/redo` | Majukan workspace ke checkpoint git berikutnya |
+| | `/checkpoints` | Tampilkan seluruh daftar checkpoint dalam sesi ini |
+| | `/checkpoint [label]` | Buat checkpoint git manual bernama |
+| **Session** | `/sessions` | Daftar seluruh sesi tersimpan dan jumlah token |
+| | `/resume <id>` | Lanjutkan sesi yang pernah disimpan |
+| | `/new` | Mulai sesi percakapan baru yang bersih |
+| | `/export [path]` | Ekspor percakapan ke file HTML mandiri (dark mode) |
+| **System** | `/doctor` | Cek kesehatan env (Node, Git, Docker, API Key, Tools) |
+| | `/init` | Scaffold folder `.agent/` dan `agent.config.json` |
+| | `/clear` | Bersihkan layar terminal dan gambar ulang status banner |
+| | `/help` | Tampilkan menu bantuan command |
+| | `/exit` / `quit` | Keluar dari Nexus CLI |
 
 ---
 

@@ -186,6 +186,56 @@ export class SessionSnapshotManager {
     }
   }
 
+  /**
+   * Get git diff of current changes against initial checkpoint or HEAD.
+   */
+  async getDiff() {
+    const isGit = await isGitRepo(this.workingDir);
+    if (!isGit) return { success: false, message: 'Not a git repository.' };
+
+    try {
+      // First try diff against initial snapshot ref if available
+      const compareRef = this.initialRef || 'HEAD';
+      const { stdout: diffOutput } = await execAsync(`git diff ${compareRef}`, { cwd: this.workingDir });
+      const { stdout: statusOutput } = await execAsync('git status --short', { cwd: this.workingDir });
+
+      return {
+        success: true,
+        diff: diffOutput.trim(),
+        status: statusOutput.trim(),
+        compareRef: compareRef.slice(0, 8)
+      };
+    } catch (err) {
+      // Fallback to plain working tree diff
+      try {
+        const { stdout: diffOutput } = await execAsync('git diff HEAD', { cwd: this.workingDir });
+        const { stdout: statusOutput } = await execAsync('git status --short', { cwd: this.workingDir });
+        return {
+          success: true,
+          diff: diffOutput.trim(),
+          status: statusOutput.trim(),
+          compareRef: 'HEAD'
+        };
+      } catch (fallbackErr) {
+        return { success: false, message: `Could not compute diff: ${fallbackErr.message}` };
+      }
+    }
+  }
+
+  /**
+   * Get current active git branch name
+   */
+  async getCurrentBranch() {
+    const isGit = await isGitRepo(this.workingDir);
+    if (!isGit) return 'no-git';
+    try {
+      const { stdout } = await execAsync('git branch --show-current', { cwd: this.workingDir });
+      return stdout.trim() || 'detached';
+    } catch {
+      return 'unknown';
+    }
+  }
+
   /** @private */
   async _restoreToIndex(index, action) {
     const cp = this.checkpoints[index];

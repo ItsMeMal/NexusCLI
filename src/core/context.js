@@ -217,11 +217,13 @@ export function pruneOldOutputs(messages, maxOutputLength = 500) {
  * @param {Function} options.onCompaction - Callback saat compaction berlangsung
  * @returns {Promise<Array>} Pesan yang sudah dikompak atau asli jika tidak perlu
  */
-export async function compactContextIfNeeded(messages, model, onCompaction) {
+export async function compactContextIfNeeded(messages, model, options = {}) {
+  const onCompaction = typeof options === 'function' ? options : options?.onCompaction;
+  const force = typeof options === 'object' && options ? Boolean(options.force) : false;
   const usage = calculateContextUsage(messages, model);
   
-  // Jika belum melebihi threshold, tidak perlu compaction
-  if (!usage.exceeded) {
+  // Jika belum melebihi threshold dan tidak dipaksa, tidak perlu compaction
+  if (!usage.exceeded && !force) {
     return { messages, compacted: false, usage };
   }
   
