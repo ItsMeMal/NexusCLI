@@ -154,7 +154,7 @@ describe('Security: Snapshot & /undo Restoration', () => {
 
     // 1. Take initial snapshot before modifications
     await snapshotManager.captureFirstSnapshot();
-    assert.ok(snapshotManager.snapshot?.ref);
+    assert.ok(snapshotManager.initialRef);
 
     // 2. Perform file modification and create untracked file
     await fs.writeFile(path.join(repoDir, 'app.js'), 'const version = "2.0.0";\n', 'utf8');

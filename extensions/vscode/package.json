@@ -1,0 +1,31 @@
+{
+  "name": "nexus-vscode",
+  "displayName": "Nexus Coding Agent",
+  "description": "VS Code extension for Nexus Coding Agent CLI — send code to local agent server",
+  "version": "0.1.0",
+  "engines": { "vscode": "^1.80.0" },
+  "categories": ["Other"],
+  "activationEvents": ["onCommand:nexus.sendPrompt", "onCommand:nexus.reviewSelection"],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      { "command": "nexus.sendPrompt", "title": "Nexus: Send Prompt" },
+      { "command": "nexus.reviewSelection", "title": "Nexus: Review Selected Code" }
+    ],
+    "configuration": {
+      "title": "Nexus Agent",
+      "properties": {
+        "nexus.serverUrl": {
+          "type": "string",
+          "default": "http://127.0.0.1:3000",
+          "description": "Nexus server URL"
+        },
+        "nexus.token": {
+          "type": "string",
+          "default": "",
+          "description": "Authentication token (optional)"
+        }
+      }
+    }
+  }
+}

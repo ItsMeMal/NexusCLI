@@ -17,7 +17,10 @@ Arsitektur: **Core + Server (HTTP/SSE) + Multi-Client (CLI/TUI)**.
   - Secret Redaction: Meredaksi token/API key/[.env] di output dan log.
   - Prompt Injection Mitigation: Menandai konten eksternal sebagai data tidak tepercaya, mewajibkan konfirmasi untuk tool berbahaya setelah membaca data eksternal.
   - Audit Log: Semua tool call dicatat ke `.agent/audit.log` (JSON Lines).
-  - Git snapshot capture & `/undo` session restore.
+  - Git snapshot capture & `/undo`/`/redo` checkpoint stack.
+- **Mode Non-Interaktif (CI-Ready)**: `nexus run "prompt" --json` dengan structured output dan exit code.
+- **Share Sesi**: Ekspor percakapan ke HTML mandiri via `/export [path]` atau `exportSessionToHTML()`.
+- **VS Code Extension**: Ekstensi minimal di `extensions/vscode/` untuk mengirim prompt/review langsung dari editor.
 - **Extensibility**:
   - **Custom Subagents**: `.agent/agents/*.md` (frontmatter: tools, permission, model + system prompt).
   - **MCP Client**: Stdio & HTTP/SSE via `@modelcontextprotocol/sdk`, konfigurasi di `.agent/mcp.json`.
@@ -229,6 +232,62 @@ Edit `.agent/mcp.json`:
 ```
 
 Tool MCP otomatis masuk ke registry dengan prefix `<server>__<tool>`.
+
+---
+
+## Mode Non-Interaktif (CI / Automation)
+
+Untuk integrasi ke CI/CD (GitHub Actions, script):
+
+```bash
+# Output teks biasa
+nexus run "Tulis fungsi fibonacci di fib.js" --approve
+
+# Output JSON terstruktur ke stdout (exit code 0 jika sukses, 1 jika gagal)
+nexus run "Review src/cli.js" --json --mode plan > review.json
+```
+
+Format output JSON:
+```json
+{
+  "sessionId": "ses_...",
+  "model": "Elaina-Free",
+  "mode": "plan",
+  "prompt": "Review src/cli.js",
+  "response": "Hasil review dari model...",
+  "toolCalls": [{ "name": "read_file", "args": {...}, "output": "..." }],
+  "error": null,
+  "exitCode": 0,
+  "usage": { "prompt_tokens": 120, "completion_tokens": 45, "total_tokens": 165 }
+}
+```
+
+Lihat contoh workflow lengkap di [`.github/workflows/agent-review.yml`](.github/workflows/agent-review.yml).
+
+---
+
+## Share Sesi ke HTML
+
+Di dalam sesi interaktif:
+```
+/export
+# Menghasilkan nexus-session-<id>.html yang siap dibuka di browser
+```
+
+Atau tentukan file output:
+```
+/export docs/session-review.html
+```
+
+---
+
+## Undo / Redo Berbasis Git
+
+Nexus membuat checkpoint setiap kali ada perubahan di mode `build`:
+- `/undo` — mundur satu checkpoint
+- `/redo` — maju satu checkpoint (jika belum ada branch baru)
+- `/checkpoints` — daftar seluruh checkpoint yang tersedia
+- `/checkpoint [label]` — buat checkpoint manual bernama
 
 ---
 
