@@ -11,7 +11,7 @@ import { getModelConfig } from './core/context.js';
 import { isDockerAvailable } from './core/sandbox.js';
 import { defaultRegistry } from './tools/index.js';
 import { COMMANDS_REGISTRY } from './core/prompt_input.js';
-import { getProviderCatalog } from './core/providers/index.js';
+import { addProvider, getProviderCatalog, listAllModels, listProviderModels, removeProvider } from './core/providers/index.js';
 
 const createElement = React.createElement;
 
@@ -273,7 +273,7 @@ class TUIClient {
 
 function NexusCompactHeader({ session, agentStatus, tokenUsage, frameIndex, elapsedSeconds, gitBranch }) {
   const mode = session?.mode || 'build';
-  const model = session?.model || 'Elaina-Free';
+  const model = session?.model || 'No model selected';
   const stateKey = MASCOT_FRAMES[agentStatus.state] ? agentStatus.state : 'idle';
   const frames = MASCOT_FRAMES[stateKey];
   const currentFrame = frames[frameIndex % frames.length];
@@ -302,7 +302,7 @@ function NexusCompactHeader({ session, agentStatus, tokenUsage, frameIndex, elap
   },
     // Row 1: Brand + Status + Mode + Model + Git Branch + Tokens
     createElement(Box, { flexDirection: 'row' },
-      createElement(Text, { color: currentFrame.color, bold: true }, '✦ ELAINA • NEXUS AGENT '),
+      createElement(Text, { color: currentFrame.color, bold: true }, '✦ NEXUS ORCHESTRATOR '),
       createElement(Text, { color: currentFrame.color, bold: true }, `[${statusBadge}]`),
       createElement(Spacer),
       createElement(Box, { paddingX: 1 },
@@ -480,33 +480,50 @@ function CommandPalette({ commands, selectedIndex, scrollOffset, pageSize }) {
 }
 
 function ProviderPalette({ providers, selectedIndex }) {
-  if (!providers?.length) return null;
-  return createElement(Box, {
-    flexDirection: 'column',
-    borderStyle: 'round',
-    borderColor: 'magenta',
-    paddingX: 1,
-    marginY: 0
-  },
+  const options = [
+    ...(providers || []).map(provider => ({
+      id: provider.id, label: provider.label, configured: provider.configured,
+      active: provider.active, detail: provider.baseUrl, keyVariable: provider.keyVariable
+    })),
+    { id: '__add__', label: '+ Add provider', configured: true, active: false, detail: 'Register any AI router or gateway' }
+  ];
+  return createElement(Box, { flexDirection: 'column', borderStyle: 'round', borderColor: 'magenta', paddingX: 1, marginY: 0 },
     createElement(Box, { flexDirection: 'row' },
-      createElement(Text, { color: 'magenta', bold: true }, '🔌 PROVIDER SELECTOR '),
+      createElement(Text, { color: 'magenta', bold: true }, '🔌 CONFIGURED PROVIDERS '),
       createElement(Spacer),
-      createElement(Text, { color: 'gray', dimColor: true }, '↑/↓ pilih • Enter aktifkan • Esc tutup')
+      createElement(Text, { color: 'gray', dimColor: true }, '↑/↓ pilih • Enter lanjut • Esc tutup')
     ),
-    ...providers.map((provider, index) => {
+    ...options.map((provider, index) => {
       const selected = index === selectedIndex;
-      return createElement(Box, { key: provider.name, flexDirection: 'row' },
-        createElement(Text, {
-          color: selected ? 'black' : 'cyan',
-          backgroundColor: selected ? 'magenta' : undefined,
-          bold: selected
-        }, `${selected ? '❯ ' : '  '}${provider.label.padEnd(20)}`),
+      return createElement(Box, { key: provider.id, flexDirection: 'row' },
+        createElement(Text, { color: selected ? 'black' : 'cyan', backgroundColor: selected ? 'magenta' : undefined, bold: selected },
+          (selected ? '❯ ' : '  ') + provider.label.padEnd(24)),
         createElement(Text, { color: provider.configured ? 'green' : 'yellow' },
-          provider.configured ? 'Configured' : 'Missing API key'),
+          provider.id === '__add__' ? 'NEW' : (provider.configured ? 'KEY READY' : 'MISSING KEY')),
         createElement(Spacer),
-        createElement(Text, { color: provider.active ? 'green' : 'gray' },
-          provider.active ? '● ACTIVE' : ''),
-        createElement(Text, { color: 'gray' }, `  ${provider.model}`)
+        createElement(Text, { color: provider.active ? 'green' : 'gray' }, provider.active ? '● ACTIVE' : ''),
+        createElement(Text, { color: 'gray' }, '  ' + (provider.detail || ''))
+      );
+    }),
+    createElement(Text, { color: 'gray', dimColor: true }, '  Add: /provider add <id> <base_url> <api_key_env> [default_model|-] [label...]')
+  );
+}
+
+function ModelPalette({ models, selectedIndex }) {
+  if (!models || models.length === 0) return null;
+  return createElement(Box, { flexDirection: 'column', borderStyle: 'round', borderColor: 'cyan', paddingX: 1, marginY: 0 },
+    createElement(Box, { flexDirection: 'row' },
+      createElement(Text, { color: 'cyan', bold: true }, '◈ AVAILABLE MODELS '),
+      createElement(Spacer),
+      createElement(Text, { color: 'gray', dimColor: true }, '↑/↓ pilih • Enter gunakan • Esc tutup')
+    ),
+    ...models.map((model, index) => {
+      const selected = index === selectedIndex;
+      return createElement(Box, { key: model.id, flexDirection: 'row' },
+        createElement(Text, { color: selected ? 'black' : 'cyan', backgroundColor: selected ? 'cyan' : undefined, bold: selected },
+          (selected ? '❯ ' : '  ') + model.model),
+        createElement(Spacer),
+        createElement(Text, { color: 'gray' }, model.providerLabel + '  ' + model.id)
       );
     })
   );
@@ -549,6 +566,9 @@ function NexusTUIApp({ client, snapshotManager }) {
   const [scrollOffset, setScrollOffset] = useState(0);
   const [providerPickerOpen, setProviderPickerOpen] = useState(false);
   const [selectedProviderIndex, setSelectedProviderIndex] = useState(0);
+  const [modelPickerOpen, setModelPickerOpen] = useState(false);
+  const [modelOptions, setModelOptions] = useState([]);
+  const [selectedModelIndex, setSelectedModelIndex] = useState(0);
   const [tokenUsage, setTokenUsage] = useState(0);
   const [gitBranch, setGitBranch] = useState('');
   const [pendingPermission, setPendingPermission] = useState(null);
@@ -625,6 +645,52 @@ function NexusTUIApp({ client, snapshotManager }) {
       return;
     }
 
+    if (trimmed.startsWith('/provider add ')) {
+      const parts = trimmed.slice('/provider add'.length).trim().split(/\s+/);
+      const [id, baseUrl, apiKeyEnv, modelToken = '', ...labelParts] = parts;
+      if (!id || !baseUrl || !apiKeyEnv) {
+        setMessages(prev => [...prev, { role: 'assistant', content:
+          'Usage: /provider add <id> <base_url> <api_key_env> [default_model|-] [label...]\n' +
+          'Example: /provider add openrouter https://openrouter.ai/api/v1 OPENROUTER_API_KEY - OpenRouter'
+        }]);
+        return;
+      }
+      try {
+        const provider = addProvider({ id, baseUrl, apiKeyEnv,
+          defaultModel: modelToken === '-' ? '' : modelToken,
+          label: labelParts.join(' ') || id
+        });
+        setMessages(prev => [...prev, { role: 'assistant', content:
+          'Provider ' + provider.label + ' tersimpan di registry lokal.\n' +
+          'API key dibaca dari ' + provider.apiKeyEnv + '. Isi di .env pribadi atau environment; key tidak disimpan di repository.'
+        }]);
+      } catch (error) {
+        setMessages(prev => [...prev, { role: 'assistant', content: 'Gagal menambahkan provider: ' + error.message }]);
+      }
+      return;
+    }
+
+    if (trimmed.startsWith('/provider remove ')) {
+      const id = trimmed.slice('/provider remove'.length).trim();
+      const removed = removeProvider(id);
+      setMessages(prev => [...prev, { role: 'assistant', content: removed
+        ? 'Provider ' + id + ' dihapus dari registry lokal.'
+        : 'Provider tidak ditemukan atau dikelola oleh environment.'
+      }]);
+      return;
+    }
+
+    if (trimmed === '/provider list') {
+      const entries = getProviderCatalog(session?.model);
+      setMessages(prev => [...prev, { role: 'assistant', content: entries.length
+        ? entries.map(provider => provider.label + ' (' + provider.id + ') — ' +
+          (provider.configured ? 'API key ready' : 'missing ' + provider.keyVariable) +
+          ' — ' + provider.baseUrl).join('\n')
+        : 'Belum ada provider. Gunakan /provider add untuk menambahkan AI router.'
+      }]);
+      return;
+    }
+
     if (trimmed === '/provider') {
       const activeIndex = providerOptions.findIndex(provider => provider.active);
       setSelectedProviderIndex(activeIndex >= 0 ? activeIndex : 0);
@@ -664,27 +730,37 @@ function NexusTUIApp({ client, snapshotManager }) {
       return;
     }
 
-    if (trimmed.startsWith('/model')) {
-      const newModel = trimmed.slice(6).trim();
-      if (!newModel) {
-        setMessages(prev => [
-          ...prev,
-          { role: 'user', content: trimmed },
-          { role: 'assistant', content: `Model aktif: ${session.model || 'default'}. Ketik /model <nama> untuk mengganti.` }
-        ]);
-      } else {
-        try {
-          const updated = await client.updateSessionSettings({ model: newModel });
-          setSession(current => ({ ...current, ...updated }));
-        } catch (err) {
-          setMessages(prev => [...prev, { role: 'assistant', content: `Failed to switch model: ${err.message}` }]);
-          return;
+    if (trimmed === '/model' || trimmed === '/model list') {
+      setAgentStatus({ state: 'thinking', text: 'Discovering models from configured providers...' });
+      try {
+        const catalog = await listAllModels();
+        setModelOptions(catalog.models);
+        setSelectedModelIndex(Math.max(0, catalog.models.findIndex(model => model.id === session?.model)));
+        if (catalog.models.length) {
+          setModelPickerOpen(true);
+        } else {
+          const errorText = catalog.errors.map(item => item.providerId + ': ' + item.error).join('\n');
+          setMessages(prev => [...prev, { role: 'assistant', content:
+            'Belum ada model yang berhasil ditemukan. Periksa API key dan endpoint provider.' +
+            (errorText ? '\n' + errorText : '')
+          }]);
         }
-        setMessages(prev => [
-          ...prev,
-          { role: 'user', content: trimmed },
-          { role: 'assistant', content: `🎯 Model berhasil diubah ke: ${newModel}` }
-        ]);
+      } catch (error) {
+        setMessages(prev => [...prev, { role: 'assistant', content: 'Gagal memuat model: ' + error.message }]);
+      } finally {
+        setAgentStatus({ state: 'idle', text: '' });
+      }
+      return;
+    }
+
+    if (trimmed.startsWith('/model ')) {
+      const newModel = trimmed.slice(7).trim();
+      try {
+        const updated = await client.updateSessionSettings({ model: newModel });
+        setSession(current => ({ ...current, ...updated }));
+        setMessages(prev => [...prev, { role: 'assistant', content: 'Model aktif: ' + newModel }]);
+      } catch (error) {
+        setMessages(prev => [...prev, { role: 'assistant', content: 'Gagal mengganti model: ' + error.message }]);
       }
       return;
     }
@@ -1018,39 +1094,71 @@ function NexusTUIApp({ client, snapshotManager }) {
       return;
     }
 
+    // Model picker keyboard navigation.
+    if (modelPickerOpen) {
+      if (key.escape) { setModelPickerOpen(false); return; }
+      if (key.upArrow) { setSelectedModelIndex(index => Math.max(0, index - 1)); return; }
+      if (key.downArrow) { setSelectedModelIndex(index => Math.min(modelOptions.length - 1, index + 1)); return; }
+      if (key.return) {
+        const model = modelOptions[selectedModelIndex];
+        if (!model) return;
+        client.updateSessionSettings({ model: model.id }).then(updated => {
+          setSession(current => ({ ...current, ...updated }));
+          setMessages(prev => [...prev, { role: 'assistant', content: 'Model aktif: ' + model.id }]);
+        }).catch(error => {
+          setMessages(prev => [...prev, { role: 'assistant', content: 'Gagal mengganti model: ' + error.message }]);
+        });
+        setModelPickerOpen(false);
+        setInput('');
+        return;
+      }
+      return;
+    }
+
     // Provider picker keyboard navigation.
     if (providerPickerOpen) {
-      if (key.escape) {
-        setProviderPickerOpen(false);
-        return;
-      }
-      if (key.upArrow) {
-        setSelectedProviderIndex(index => Math.max(0, index - 1));
-        return;
-      }
-      if (key.downArrow) {
-        setSelectedProviderIndex(index => Math.min(providerOptions.length - 1, index + 1));
-        return;
-      }
+      if (key.escape) { setProviderPickerOpen(false); return; }
+      const providerCount = providerOptions.length + 1;
+      if (key.upArrow) { setSelectedProviderIndex(index => Math.max(0, index - 1)); return; }
+      if (key.downArrow) { setSelectedProviderIndex(index => Math.min(providerCount - 1, index + 1)); return; }
       if (key.return) {
-        const provider = providerOptions[selectedProviderIndex];
-        if (!provider) return;
-        if (!provider.configured) {
-          setMessages(prev => [...prev, {
-            role: 'assistant',
-            content: `Provider ${provider.label} belum dikonfigurasi. Atur ${provider.keyVariable} di .env terlebih dahulu.`
+        if (selectedProviderIndex === providerOptions.length) {
+          setProviderPickerOpen(false);
+          setMessages(prev => [...prev, { role: 'assistant', content:
+            'Tambahkan provider dengan:\n/provider add <id> <base_url> <api_key_env> [default_model|-] [label...]\n' +
+            'Contoh: /provider add openrouter https://openrouter.ai/api/v1 OPENROUTER_API_KEY - OpenRouter'
           }]);
           return;
         }
-        const model = `${provider.name}/${provider.model}`;
-        client.updateSessionSettings({ model }).then(updated => {
-          setSession(current => ({ ...current, ...updated }));
-          setMessages(prev => [...prev, { role: 'assistant', content: `Provider aktif: ${provider.label} • ${provider.model}` }]);
-        }).catch(err => {
-          setMessages(prev => [...prev, { role: 'assistant', content: `Gagal mengganti provider: ${err.message}` }]);
-        });
+        const provider = providerOptions[selectedProviderIndex];
+        if (!provider) return;
+        if (!provider.configured) {
+          setMessages(prev => [...prev, { role: 'assistant', content:
+            'API key belum ditemukan. Set ' + provider.keyVariable + ' pada environment pribadi, lalu coba lagi.'
+          }]);
+          return;
+        }
+        setAgentStatus({ state: 'thinking', text: 'Loading provider models...' });
+        listProviderModels(provider.id).then(models => {
+          if (models.length) {
+            setModelOptions(models);
+            setSelectedModelIndex(Math.max(0, models.findIndex(model => model.id === session?.model)));
+            setModelPickerOpen(true);
+          } else if (provider.defaultModel) {
+            const selectedModel = provider.id + '/' + provider.defaultModel;
+            return client.updateSessionSettings({ model: selectedModel }).then(updated => {
+              setSession(current => ({ ...current, ...updated }));
+              setMessages(prev => [...prev, { role: 'assistant', content: 'Provider aktif: ' + selectedModel }]);
+            });
+          } else {
+            setMessages(prev => [...prev, { role: 'assistant', content:
+              'Endpoint ' + provider.baseUrl + ' tidak mengembalikan model.'
+            }]);
+          }
+        }).catch(error => {
+          setMessages(prev => [...prev, { role: 'assistant', content: 'Gagal memuat model: ' + error.message }]);
+        }).finally(() => setAgentStatus({ state: 'idle', text: '' }));
         setProviderPickerOpen(false);
-        setInput('');
         return;
       }
       return;
@@ -1179,6 +1287,9 @@ function NexusTUIApp({ client, snapshotManager }) {
     providerPickerOpen
       ? createElement(ProviderPalette, { providers: providerOptions, selectedIndex: selectedProviderIndex })
       : null,
+    modelPickerOpen
+      ? createElement(ModelPalette, { models: modelOptions, selectedIndex: selectedModelIndex })
+      : null,
     createElement(InputBox, { input, mode: session?.mode || 'build', isBusy }),
     createElement(FooterBar)
   );
@@ -1213,7 +1324,7 @@ async function startTUI() {
   }
 
   const client = new TUIClient({ serverUrl, token });
-  const initialModel = process.env.MODEL || 'Elaina-Free';
+  const initialModel = process.env.MODEL || '';
   const initialMode = 'build';
 
   await client.createSession({ mode: initialMode, model: initialModel });
