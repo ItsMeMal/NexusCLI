@@ -516,8 +516,44 @@ async function runInteractive(parsed) {
       history: commandHistory
     });
 
-    const trimmed = input.trim();
+    let trimmed = input.trim();
     if (!trimmed) continue;
+
+    // A bare slash opens the searchable command palette. This also works in
+    // non-TTY terminals, where inline keypress autocomplete is unavailable.
+    if (trimmed === '/') {
+      const commandOptions = COMMANDS_REGISTRY
+        .filter(command => command.cmd.startsWith('/'))
+        .map(command => ({
+          label: command.cmd,
+          desc: command.desc,
+          category: command.cat
+        }));
+
+      const selectedIndex = await promptSelect({
+        title: 'COMMAND PALETTE',
+        icon: '⌘',
+        options: commandOptions,
+        searchable: true,
+        maxVisible: 14,
+        footer: '↑↓ navigate • type to search • Enter run • Esc close'
+      });
+
+      if (selectedIndex < 0) continue;
+      const selectedCommand = COMMANDS_REGISTRY.filter(command => command.cmd.startsWith('/'))[selectedIndex];
+      if (!selectedCommand) continue;
+
+      trimmed = selectedCommand.cmd;
+      if (selectedCommand.needsArg) {
+        const argument = await promptText({
+          message: `Arguments for ${selectedCommand.cmd}`,
+          validate: value => value.trim() ? undefined : 'This command requires an argument'
+        });
+        if (argument === null) continue;
+        trimmed = `${selectedCommand.cmd} ${argument.trim()}`;
+      }
+    }
+
     commandHistory.push(trimmed);
 
     // Exit
