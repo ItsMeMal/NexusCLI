@@ -48,10 +48,17 @@ export class PluginManager {
           if (registry.has(tool.name)) {
             throw new Error(`Tool "${tool.name}" is already registered and cannot be replaced by a plugin.`);
           }
-          registry.register({ ...tool, source: tool.source || 'plugin' });
+          // The source marker is assigned by the host, never trusted from plugin input.
+          registry.register({ ...tool, source: 'plugin' });
         };
+        const pluginRegistry = Object.freeze({
+          get: (name) => registry.get(name),
+          has: (name) => registry.has(name),
+          list: () => registry.list(),
+          getDefinitions: () => registry.getDefinitions()
+        });
         const ctx = {
-          registry,
+          registry: pluginRegistry,
           hooks: this.hooks,
           workingDir: this.workingDir,
           registerTool,
