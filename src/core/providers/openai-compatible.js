@@ -1,33 +1,17 @@
 import { chat } from '../llm.js';
 
-/**
- * OpenAI-compatible provider abstraction.
- * Semua provider OpenAI-compatible (OpenAI, OpenRouter, dll) harus implementasi interface ini.
- */
 export class OpenAICompatibleProvider {
   constructor(config = {}) {
-    this.baseUrl = config.baseUrl || process.env.BASE_URL || 'https://api.openai.com/v1';
-    this.apiKey = config.apiKey || process.env.API_KEY || process.env.OPENAI_API_KEY || '';
-    this.model = config.model || process.env.MODEL || process.env.OPENAI_MODEL || 'gpt-4o';
+    this.baseUrl = String(config.baseUrl || '').replace(/\/+$/, '');
+    this.apiKey = config.apiKey || '';
+    this.model = config.model || '';
     this.maxRetries = config.maxRetries || 3;
-    this.fallbackModel = config.fallbackModel; // optional fallback model string
+    this.fallbackModel = config.fallbackModel;
   }
 
-  /**
-   * Normalisasi format tool call antar provider.
-   * OpenAI: tool_calls[index].function.name/arguments
-   * Anthropic: tool_calls[index].name/input
-   * Gemini: tool_calls[index].function.declaration.name/parameters
-   * @param {Object} toolCall - Tool call dari response provider
-   * @returns {Object} Normalized tool call
-   */
   normalizeToolCall(toolCall) {
     if (!toolCall) return null;
-
-    // Jika sudah format normalized, return 그대로
     if (toolCall.normalized) return toolCall;
-
-    // OpenAI format
     if (toolCall.type === 'function' || toolCall.type === 'code_interpreter') {
       return {
         normalized: true,
@@ -36,252 +20,106 @@ export class OpenAICompatibleProvider {
         arguments: toolCall.function?.arguments || '{}'
       };
     }
-
-    // Fallback: coba deteksi format apa
-    const result = {
+    return {
       normalized: true,
       id: toolCall.id || '',
       name: toolCall.name || 'unknown',
-      arguments: '{}'
+      arguments: toolCall.input !== undefined ? JSON.stringify(toolCall.input)
+        : (toolCall.parameters !== undefined ? JSON.stringify(toolCall.parameters) : '{}')
     };
-
-    // Coba ekstrak dari format apa saja
-    if (toolCall.input !== undefined) {
-      result.arguments = JSON.stringify(toolCall.input);
-    }
-    if (toolCall.parameters !== undefined) {
-      result.arguments = JSON.stringify(toolCall.parameters);
-    }
-
-    return result;
   }
 
-  /**
-   * Normalisasi format usage/token response.
-   * @param {Object} usage - Usage dari response provider
-   * @returns {Object} Normalized usage {prompt, completion, total}
-   */
   normalizeUsage(usage) {
-    if (!usage) {
-      return { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
+    if (!usage) return { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
+    if (usage.prompt_tokens !== undefined || usage.completion_tokens !== undefined) {
+      const prompt = usage.prompt_tokens || 0;
+      const completion = usage.completion_tokens || 0;
+      return { prompt_tokens: prompt, completion_tokens: completion, total_tokens: usage.total_tokens || prompt + completion };
     }
-
-    // OpenAI format
-    if (usage.prompt_tokens !== undefined && usage.completion_tokens !== undefined) {
-      return {
-        prompt_tokens: usage.prompt_tokens,
-        completion_tokens: usage.completion_tokens,
-        total_tokens: usage.total_tokens || (usage.prompt_tokens + usage.completion_tokens)
-      };
+    if (usage.input_tokens !== undefined || usage.output_tokens !== undefined) {
+      const prompt = usage.input_tokens || 0;
+      const completion = usage.output_tokens || 0;
+      return { prompt_tokens: prompt, completion_tokens: completion, total_tokens: usage.total_tokens || prompt + completion };
     }
-
-    // Format gabungan
-    if (usage.input_tokens !== undefined && usage.output_tokens !== undefined) {
-      return {
-        prompt_tokens: usage.input_tokens,
-        completion_tokens: usage.output_tokens,
-        total_tokens: usage.total_tokens || (usage.input_tokens + usage.output_tokens)
-      };
-    }
-
-    // Default fallback
-    return {
-      prompt_tokens: usage.tokens || 0,
-      completion_tokens: 0,
-      total_tokens: usage.tokens || 0
-    };
+    return { prompt_tokens: usage.tokens || 0, completion_tokens: 0, total_tokens: usage.tokens || 0 };
   }
 
-  /**
-   * Stream chat completions dengan event normalization.
-   * Mengembalikan async iterator yang emisikan event ternormalisasi.
-   * @param {Array} messages - Array pesan chat
-   * @param {Array} tools - Daftar tool definitions (optional)
-   * @param {Object} options - opsi { model, temperature, onToken, onToolStart, onToolResult, onDone, onError }
-   * @returns {AsyncIterator} Async iterator yang emisikan { type, ... } events
-   */
   async *stream(messages, tools = [], options = {}) {
+    if (!this.baseUrl) throw new Error('Provider base URL is not configured.');
+    if (!this.apiKey) throw new Error('Provider API key is not configured.');
     const model = options.model || this.model;
-    const temperature = options.temperature;
-    const onToken = options.onToken || (() => {});
-    const onToolStart = options.onToolStart || (() => {});
-    const onToolResult = options.onToolResult || (() => {});
-    const onDone = options.onDone || (() => {});
-    const onError = options.onError || ((err) => { throw err; });
+    if (!model) throw new Error('No model selected. Use /model to choose a model from a configured provider.');
 
-    let retryCount = 0;
-    let lastAttempt = 0;
+    const payload = { model, messages, stream: true };
+    if (Array.isArray(tools) && tools.length) {
+      payload.tools = tools;
+      payload.tool_choice = 'auto';
+    }
+    if (options.temperature !== undefined) payload.temperature = options.temperature;
 
-    const executeRequest = async () => {
-      const payload = {
-        model,
-        messages,
-        stream: true
-      };
+    const response = await fetch(this.baseUrl + '/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer ' + this.apiKey
+      },
+      body: JSON.stringify(payload),
+      signal: options.signal
+    });
+    if (!response.ok) {
+      const detail = await response.text().catch(() => '');
+      throw new Error('Provider HTTP ' + response.status + (detail ? ': ' + detail.slice(0, 1200) : ''));
+    }
+    if (!response.body?.getReader) throw new Error('Provider response does not support streaming.');
 
-      if (tools && tools.length > 0) {
-        payload.tools = tools;
-        payload.tool_choice = 'auto';
-      }
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder('utf-8');
+    let buffer = '';
+    const toolCalls = new Map();
+    let usage = null;
 
-      if (temperature !== undefined) {
-        payload.temperature = temperature;
-      }
-
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
-
-      try {
-        const response = await fetch(`${this.baseUrl}/chat/completions`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${this.apiKey}`
-          },
-          body: JSON.stringify(payload),
-          signal: controller.signal
-        });
-
-        clearTimeout(timeoutId);
-
-        if (response.status === 429) {
-          // Rate limit - exponential backoff
-          const waitTime = Math.pow(2, retryCount) * 1000; // 1s, 2s, 4s...
-          if (retryCount < this.maxRetries) {
-            retryCount++;
-            console.warn(`[Provider] Rate limit 429, retry after ${waitTime}ms (attempt ${retryCount})`);
-            await new Promise(resolve => setTimeout(resolve, waitTime));
-            return; // retry dari awal
-          } else {
-            throw new Error('Max retry attempts reached for rate limit 429');
-          }
-        }
-
-        if (response.status >= 500) {
-          // Server error - retry with backoff
-          if (retryCount < this.maxRetries) {
-            retryCount++;
-            const waitTime = Math.pow(2, retryCount) * 1000;
-            console.warn(`[Provider] Server error ${response.status}, retry after ${waitTime}ms`);
-            await new Promise(resolve => setTimeout(resolve, waitTime));
-            return; // retry
-          }
-        }
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          throw new Error(`HTTP ${response.status}: ${errorText}`);
-        }
-
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder('utf-8');
-        let buffer = '';
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split(/\r?\n/);
-          buffer = lines.pop() || '';
-
-          for (const line of lines) {
-            const trimmed = line.trim();
-            if (!trimmed || trimmed.startsWith(':')) continue;
-
-            if (!trimmed.startsWith('data: ')) continue;
-
-            const payloadStr = trimmed.slice(6).trim();
-            if (payloadStr === '[DONE]') continue;
-
-            try {
-              const json = JSON.parse(payloadStr);
-
-              // Normalize usage
-              if (json.usage) {
-                const normalizedUsage = this.normalizeUsage(json.usage);
-                onToken?.(json.usage || '', normalizedUsage);
-              }
-
-              // Process content delta
-              if (json.choices?.[0]?.delta?.content) {
-                onToken?.(json.choices[0].delta.content, json.choices[0].delta.content);
-              }
-
-              // Process tool calls
-              if (Array.isArray(json.choices?.[0]?.delta?.tool_calls)) {
-                for (const tc of json.choices[0].delta.tool_calls) {
-                  const normalized = this.normalizeToolCall(tc);
-                  if (normalized) {
-                    onToolStart?.({
-                      id: normalized.id,
-                      index: tc.index,
-                      name: normalized.name,
-                      args: normalized.arguments
-                    });
-                  }
-                }
-              }
-
-              // Process finished tool calls (post-processing)
-              if (json.choices?.[0]?.finish_reason) {
-                onDone?.({
-                  finishReason: json.choices[0].finish_reason,
-                  usage: this.normalizeUsage(json.usage)
-                });
-                return; // Selesaikan iterator
-              }
-
-            } catch (err) {
-              // Skip unparseable delta
-              continue;
-            }
-          }
-        }
-
-        // Selesaikan jika stream selesai tanpa finish_reason
-        onDone?.({
-          finishReason: 'stop',
-          usage: this.normalizeUsage({})
-        });
-
-      } catch (err) {
-        // Jika rate limit sudah max retry, atau error lain
-        if (retryCount >= this.maxRetries) {
-          onError?.(err);
-          throw err;
-        }
-
-        // Coba retry sekali lagi
-        retryCount++;
-        const waitTime = Math.pow(2, retryCount) * 1000;
-        await new Promise(resolve => setTimeout(resolve, waitTime));
-        // Restart stream dari awal
-        await this.stream(messages, tools, options);
-      }
-    };
-
-    // Jalankan request dengan retry loop
     while (true) {
-      try {
-        await executeRequest();
-        break; // Sukses, keluar dari retry loop
-      } catch (err) {
-        // Jika error bukan rate limit atau sudah habis retry
-        if (err.message && err.message.includes('Max retry attempts')) {
-          onError?.(err);
-          throw err;
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split(/\r?\n/);
+      buffer = lines.pop() || '';
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith(':') || !trimmed.startsWith('data:')) continue;
+        const data = trimmed.slice(5).trim();
+        if (data === '[DONE]') continue;
+        let event;
+        try { event = JSON.parse(data); } catch { continue; }
+        if (event.usage) usage = this.normalizeUsage(event.usage);
+        const delta = event.choices?.[0]?.delta;
+        if (typeof delta?.content === 'string') options.onToken?.(delta.content);
+        for (const chunk of delta?.tool_calls || []) {
+          const index = chunk.index ?? 0;
+          const current = toolCalls.get(index) || { id: '', name: '', arguments: '' };
+          if (chunk.id) current.id = chunk.id;
+          if (chunk.function?.name) current.name += chunk.function.name;
+          if (chunk.function?.arguments) current.arguments += chunk.function.arguments;
+          toolCalls.set(index, current);
+          options.onToolStart?.({
+            index,
+            id: current.id || undefined,
+            name: current.name || 'unknown',
+            args: chunk.function?.arguments || ''
+          });
         }
-
-        // Retry lain
-        retryCount++;
-        if (retryCount > this.maxRetries) {
-          onError?.(err);
-          throw err;
-        }
-        const waitTime = Math.pow(2, retryCount) * 1000;
-        await new Promise(resolve => setTimeout(resolve, waitTime));
       }
     }
+
+    for (const [index, call] of toolCalls) {
+      options.onToolStart?.({
+        index,
+        id: call.id || ('tool_' + index),
+        name: call.name,
+        args: call.arguments
+      });
+    }
+    options.onDone?.({ finishReason: 'stop', usage });
+    yield { type: 'done', usage };
   }
 }
