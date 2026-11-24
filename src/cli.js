@@ -24,7 +24,8 @@ import {
   renderCostReport,
   renderSecurityPrompt
 } from './core/ui.js';
-import { promptWithAutocomplete, COMMANDS_REGISTRY } from './core/prompt_input.js';
+import { promptWithAutocomplete, promptSelect, COMMANDS_REGISTRY } from './core/prompt_input.js';
+import { getProviderCatalog } from './core/providers/index.js';
 
 function loadEnv() {
   const envPath = path.resolve(process.cwd(), '.env');
@@ -142,6 +143,21 @@ class NexusClient {
     const data = await res.json();
     this.sessionId = data.id;
     this.sessionData = data;
+    return data;
+  }
+
+  async updateSessionSettings(settings = {}) {
+    const res = await fetch(`${this.serverUrl}/session/${this.sessionId}`, {
+      method: 'PATCH',
+      headers: this.getHeaders(),
+      body: JSON.stringify(settings)
+    });
+    if (!res.ok) {
+      const payload = await res.json().catch(() => ({}));
+      throw new Error(payload.error || `HTTP ${res.status}`);
+    }
+    const data = await res.json();
+    this.sessionData = { ...this.sessionData, ...data };
     return data;
   }
 
@@ -519,14 +535,14 @@ async function runInteractive(parsed) {
 
     // Plan mode
     if (trimmed === '/plan') {
-      client.sessionData.mode = 'plan';
+      await client.updateSessionSettings({ mode: 'plan' });
       console.log(`\n  🔒 ${c.yellow}${c.bold}Switched to PLAN mode${c.reset} ${c.dim}(read-only). File modifications blocked.${c.reset}\n`);
       continue;
     }
 
     // Build mode
     if (trimmed === '/build') {
-      client.sessionData.mode = 'build';
+      await client.updateSessionSettings({ mode: 'build' });
       console.log(`\n  ⚡ ${c.green}${c.bold}Switched to BUILD mode${c.reset} ${c.dim}(full execution). File writes & bash enabled.${c.reset}\n`);
       continue;
     }
@@ -538,13 +554,43 @@ async function runInteractive(parsed) {
         console.log(`\n  ${c.bold}Active Model:${c.reset} ${c.cyan}${client.sessionData.model}${c.reset}`);
         console.log(`  ${c.dim}Usage: /model <name> (e.g. gpt-4o, claude-3-5-sonnet-20241022, gemini-1.5-flash)${c.reset}\n`);
       } else {
-        client.sessionData.model = newModel;
+        await client.updateSessionSettings({ model: newModel });
         console.log(`\n  🎯 ${c.bold}Model switched to:${c.reset} ${c.cyan}${c.bold}${newModel}${c.reset}\n`);
       }
       continue;
     }
 
-    // Provider management
+    // Provider selection UI. Legacy /provider add|list|remove forms remain available below.
+    if (trimmed === '/provider') {
+      const providers = getProviderCatalog(client.sessionData.model);
+      const selectedIndex = await promptSelect({
+        title: 'SELECT PROVIDER',
+        icon: '🔌',
+        options: providers.map(provider => ({
+          label: provider.label,
+          desc: `${provider.model} • ${provider.configured ? 'API key ready' : `missing ${provider.keyVariable}`}`,
+          active: provider.active
+        })),
+        footer: '↑↓ pilih • [Enter] aktifkan • [Esc] batal'
+      });
+
+      if (selectedIndex < 0) continue;
+      const provider = providers[selectedIndex];
+      if (!provider.configured) {
+        console.log(`\\n  ${c.yellow}Provider ${provider.label} belum dikonfigurasi. Atur ${provider.keyVariable} di .env terlebih dahulu.${c.reset}\\n`);
+        continue;
+      }
+
+      try {
+        const model = `${provider.name}/${provider.model}`;
+        await client.updateSessionSettings({ model });
+        console.log(`\\n  🔌 ${c.green}Provider aktif: ${provider.label} • ${provider.model}${c.reset}\\n`);
+      } catch (err) {
+        console.log(`\\n  ${c.red}Gagal mengganti provider: ${err.message}${c.reset}\\n`);
+      }
+      continue;
+    }
+
     if (trimmed.startsWith('/provider')) {
       const args = trimmed.slice(9).trim().split(/\s+/);
       const subCmd = args[0]?.toLowerCase() || 'list';

@@ -26,33 +26,26 @@ export function getLLMConfig(customConfig = {}) {
  * @param {string} modelStr - Model string like "gpt-4o" or "anthropic/claude-3-opus"
  * @returns {Object} { providerInstance, apiKey, config }
  */
-function initializeProvider(modelStr = 'gpt-4o', customOptions = {}) {
-  const { createProvider, loadApiKey, parseModelConfig } = require('./core/providers/index.js');
-
-  // Parse the config string to get provider, model, and apiKey
+async function initializeProvider(modelStr = 'gpt-4o', customOptions = {}) {
+  const { createProvider, loadApiKey, parseModelConfig } = await import('./providers/index.js');
   const parsed = parseModelConfig(modelStr);
-
-  // Load API key securely (from env or credential file, never logged)
-  const apiKey = parsed.apiKey || loadApiKey('API_KEY');
+  const apiKey = parsed.apiKey || loadApiKey('API_KEY', parsed.credentialFile);
 
   if (!apiKey) {
-    throw new Error(
-      `LLM API key is missing. Set API_KEY env var or provide credential file.`
-    );
+    const keyHint = parsed.provider === 'anthropic'
+      ? 'ANTHROPIC_API_KEY'
+      : parsed.provider === 'gemini'
+        ? 'GEMINI_API_KEY or GOOGLE_API_KEY'
+        : 'API_KEY or OPENAI_API_KEY';
+    throw new Error(`Missing API key for provider "${parsed.provider}". Set ${keyHint}.`);
   }
 
-  // Create provider instance with proper config
-  const providerConfig = {
+  const provider = createProvider(parsed.provider, {
+    ...customOptions,
     baseUrl: parsed.baseUrl,
     apiKey,
     model: parsed.model
-  };
-
-  // Merge with any custom options
-  const finalConfig = { ...customOptions, ...providerConfig };
-
-  const provider = createProvider(parsed.provider || 'openai-compatible', finalConfig);
-
+  });
   return { provider, apiKey, config: parsed };
 }
 
@@ -65,7 +58,7 @@ function initializeProvider(modelStr = 'gpt-4o', customOptions = {}) {
  * @returns {Promise<Object>} Pesan final dari LLM dengan format yang konsisten
  */
 export async function providerChat(messages, tools = [], options = {}) {
-  const { provider, apiKey, config } = initializeProvider(options.model || 'gpt-4o', options);
+  const { provider, apiKey, config } = await initializeProvider(options.model || 'gpt-4o', options);
 
   const {
     onToken = options.onToken || (() => {}),
@@ -162,17 +155,12 @@ export async function providerChat(messages, tools = [], options = {}) {
 export async function chat(messages, tools = [], options = {}) {
   const config = getLLMConfig(options);
 
-  // Jika API key ada dan model menandakan provider khusus, gunakan provider abstraction
-  if (config.apiKey && (options.model && options.model.includes('/'))) {
-    try {
-      return await providerChat(messages, tools, options);
-    } catch (err) {
-      // Jika provider gagal, jatuhkan error namun tetap bisa fallback
-      console.warn('[LLM] Provider fallback to direct API');
-    }
+  // An explicit provider/model selection must use that provider, not silently fall back.
+  if (options.model && options.model.includes('/')) {
+    return await providerChat(messages, tools, options);
   }
 
-  // Fallback ke OpenAI-compatible direct API
+  // Default OpenAI-compatible direct API
   if (!config.apiKey && !options.skipApiKeyCheck) {
     throw new Error('LLM API key is missing. Set API_KEY or OPENAI_API_KEY in environment.');
   }

@@ -148,6 +148,37 @@ export function createNexusServer(options = {}) {
         return;
       }
 
+      // 3b. PATCH /session/:id -> persist session settings
+      const sessionUpdateMatch = pathname.match(/^\\/session\\/([^/]+)$/);
+      if (req.method === 'PATCH' && sessionUpdateMatch) {
+        const sessionId = sessionUpdateMatch[1];
+        if (activeRuns.has(sessionId)) {
+          sendJson(res, 409, { error: 'Cannot update a session while it is running.' });
+          return;
+        }
+
+        const body = await readJsonBody(req);
+        if (body.mode !== undefined && !['plan', 'build'].includes(body.mode)) {
+          sendJson(res, 400, { error: 'mode must be "plan" or "build".' });
+          return;
+        }
+        if (body.model !== undefined && (typeof body.model !== 'string' || !body.model.trim())) {
+          sendJson(res, 400, { error: 'model must be a non-empty string.' });
+          return;
+        }
+
+        try {
+          const session = await sessionManager.loadSession(sessionId);
+          if (body.mode !== undefined) session.mode = body.mode;
+          if (body.model !== undefined) session.model = body.model.trim();
+          await sessionManager.saveSession(session);
+          sendJson(res, 200, { id: session.id, mode: session.mode, model: session.model });
+        } catch (err) {
+          sendJson(res, 404, { error: `Session not found: ${err.message}` });
+        }
+        return;
+      }
+
       // 4. GET /session/:id/events -> SSE endpoint
       const eventsMatch = pathname.match(/^\/session\/([^/]+)\/events$/);
       if (req.method === 'GET' && eventsMatch) {

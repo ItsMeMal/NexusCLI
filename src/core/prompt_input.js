@@ -10,11 +10,13 @@ export const COMMANDS_REGISTRY = [
   { cmd: '/checkpoints', cat: 'Git', desc: 'List all git checkpoints captured in session', needsArg: false },
   { cmd: '/checkpoint', cat: 'Git', desc: 'Create manual checkpoint (/checkpoint [label])', needsArg: true },
   { cmd: '/model', cat: 'Model', desc: 'Switch or view active LLM (/model <name>)', needsArg: true },
-  { cmd: '/provider', cat: 'Model', desc: 'Manage LLM providers (/provider add|list|remove)', needsArg: true },
+  { cmd: '/provider', cat: 'Model', desc: 'Open provider picker and switch the active LLM provider', needsArg: false },
   { cmd: '/cost', cat: 'Model', desc: 'View token usage stats and estimated cost breakdown', needsArg: false },
+  { cmd: '/usage', cat: 'Model', desc: 'Alias for /cost', needsArg: false },
   { cmd: '/usage', cat: 'Model', desc: 'Alias for /cost', needsArg: false },
   { cmd: '/compact', cat: 'Model', desc: 'Manually prune and compact conversation context', needsArg: false },
   { cmd: '/doctor', cat: 'System', desc: 'Run system & workspace diagnostic health checks', needsArg: false },
+  { cmd: '/abort', cat: 'System', desc: 'Stop the currently running agent task', needsArg: false },
   { cmd: '/init', cat: 'System', desc: 'Scaffold .agent/ config & agent.config.json', needsArg: false },
   { cmd: '/sessions', cat: 'Session', desc: 'List all saved conversation sessions', needsArg: false },
   { cmd: '/resume', cat: 'Session', desc: 'Resume a saved session by ID (/resume <id>)', needsArg: true },
@@ -38,21 +40,20 @@ const CAT_ORDER = ['Mode', 'Git', 'Model', 'Session', 'System', 'UI', 'Help'];
  * @returns {Array<string>} Baris-baris hint
  */
 function buildHintLines(query, matches, tabCycleIdx) {
-  const flat = matches.map((m) => m.cmd.toLowerCase());
-  const lines = [];
+  const lines = [
+    `  ${c.cyan}${c.bold}AVAILABLE COMMANDS${c.reset} ${c.dim}• ${matches.length} match(es)${c.reset}`
+  ];
 
-  for (const cat of CAT_ORDER) {
-    const cmds = matches.filter((m) => m.cat === cat);
-    if (cmds.length === 0) continue;
-    const chips = cmds.map((m) => {
-      const flatIdx = flat.indexOf(m.cmd.toLowerCase());
-      const isHi = tabCycleIdx >= 0 && (tabCycleIdx % matches.length) === flatIdx;
-      return isHi ? `${c.cyan}${c.bold}[${m.cmd}]${c.reset}` : `${c.dim}${m.cmd}${c.reset}`;
-    }).join(' ');
-    lines.push(`  ${c.magenta}${c.bold}${cat}${c.reset} ${c.dim}›${c.reset} ${chips}`);
-  }
+  matches.forEach((command, index) => {
+    const selected = tabCycleIdx >= 0 && (tabCycleIdx % matches.length) === index;
+    const prefix = selected ? `${c.cyan}${c.bold}❯${c.reset}` : ' ';
+    const name = selected
+      ? `${c.cyan}${c.bold}${command.cmd.padEnd(15)}${c.reset}`
+      : `${c.white}${command.cmd.padEnd(15)}${c.reset}`;
+    lines.push(`  ${prefix} ${c.magenta}${command.cat.padEnd(8)}${c.reset} ${name} ${c.dim}${command.desc}${c.reset}`);
+  });
 
-  lines.push(`  ${c.cyan}✦${c.reset} ${c.dim}[Tab] cycle • [Enter] pilih • [↑↓] navigasi${c.reset}`);
+  lines.push(`  ${c.cyan}✦${c.reset} ${c.dim}[↑↓] navigate • [Tab] complete • [Enter] choose • [Esc] close${c.reset}`);
   return lines;
 }
 

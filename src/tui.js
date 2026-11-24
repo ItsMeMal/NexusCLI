@@ -10,6 +10,8 @@ import { exportSessionToHTML } from './core/export.js';
 import { getModelConfig } from './core/context.js';
 import { isDockerAvailable } from './core/sandbox.js';
 import { defaultRegistry } from './tools/index.js';
+import { COMMANDS_REGISTRY } from './core/prompt_input.js';
+import { getProviderCatalog } from './core/providers/index.js';
 
 const createElement = React.createElement;
 
@@ -19,47 +21,31 @@ loadEnv();
 const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 const PAGE_SIZE = 6;
 
-const ALL_COMMANDS = [
-  { cmd: '/plan', desc: 'Beralih ke mode read-only (blokir write/edit file)', cat: 'Mode', needsArg: false },
-  { cmd: '/build', desc: 'Beralih ke mode build (eksekusi penuh: write, edit, bash)', cat: 'Mode', needsArg: false },
-  { cmd: '/diff', desc: 'Lihat git diff perubahan workspace saat ini', cat: 'Git', needsArg: false },
-  { cmd: '/undo', desc: 'Kembalikan workspace ke checkpoint sebelumnya', cat: 'Git', needsArg: false },
-  { cmd: '/redo', desc: 'Majukan workspace ke checkpoint berikutnya', cat: 'Git', needsArg: false },
-  { cmd: '/checkpoints', desc: 'Daftar seluruh checkpoint git sesi ini', cat: 'Git', needsArg: false },
-  { cmd: '/checkpoint', desc: 'Buat checkpoint git manual (/checkpoint [nama])', cat: 'Git', needsArg: true },
-  { cmd: '/model', desc: 'Lihat atau ganti model LLM aktif (/model <nama>)', cat: 'Model', needsArg: true },
-  { cmd: '/cost', desc: 'Laporan konsumsi token dan estimasi biaya USD', cat: 'Model', needsArg: false },
-  { cmd: '/compact', desc: 'Pangkas riwayat percakapan untuk menghemat token', cat: 'Model', needsArg: false },
-  { cmd: '/doctor', desc: 'Diagnostik env (Node, Git, Docker, API, Tools)', cat: 'Sistem', needsArg: false },
-  { cmd: '/init', desc: 'Inisialisasi folder .agent/ dan agent.config.json', cat: 'Sistem', needsArg: false },
-  { cmd: '/sessions', desc: 'Daftar seluruh sesi tersimpan dan jumlah token', cat: 'Sesi', needsArg: false },
-  { cmd: '/resume', desc: 'Lanjutkan sesi tersimpan (/resume <id>)', cat: 'Sesi', needsArg: true },
-  { cmd: '/new', desc: 'Mulai sesi percakapan baru yang bersih', cat: 'Sesi', needsArg: false },
-  { cmd: '/export', desc: 'Ekspor sesi ke file HTML mandiri (/export [nama])', cat: 'Sesi', needsArg: true },
-  { cmd: '/abort', desc: 'Hentikan proses aktif yang sedang berjalan', cat: 'Sistem', needsArg: false },
-  { cmd: '/clear', desc: 'Bersihkan riwayat percakapan di layar', cat: 'Tampilan', needsArg: false },
-  { cmd: '/help', desc: 'Buka menu panduan & daftar perintah lengkap', cat: 'Bantuan', needsArg: false },
-  { cmd: 'exit', desc: 'Keluar dari aplikasi', cat: 'Sistem', needsArg: false }
-];
+const ALL_COMMANDS = COMMANDS_REGISTRY.map(command => ({
+  cmd: command.cmd,
+  desc: command.desc,
+  cat: command.cat,
+  needsArg: command.needsArg
+}));
 
 const MASCOT_FRAMES = {
   idle: [
     {
       face: [' ∧,,∧  ', '( ˘ᴗ˘ ) ', 'c( つ🪄*'],
       color: 'magenta',
-      quote: 'Siap membantumu coding. Ketik instruksi atau /help~'
+      quote: 'Siap membantu. Tulis apa yang ingin kamu lakukan, atau ketik / untuk commands~'
     },
     {
       face: [' ∧,,∧  ', '( ˘‿˘ ) ', 'c( つ🪄✨'],
       color: 'magenta',
-      quote: 'Punya ide fitur atau bug? Tulis instruksi di bawah~'
+      quote: 'Ada yang ingin dicari, dijelaskan, ditulis, dianalisis, atau dikerjakan?'
     }
   ],
   thinking: [
     {
       face: [' ∧,,∧  ', '( ✧ω✧) ', 'c( つ🪄✦'],
       color: 'yellow',
-      quote: 'Menganalisis workspace & merapal solusi... ✦'
+      quote: 'Memahami permintaan dan menyiapkan bantuan... ✦'
     },
     {
       face: [' ∧,,∧  ', '( ˘ω˘ ) ', 'c( つ🪄*'],
@@ -159,6 +145,21 @@ class TUIClient {
       headers: this.getHeaders()
     });
     return res.json();
+  }
+
+  async updateSessionSettings(settings = {}) {
+    const res = await fetch(`${this.serverUrl}/session/${this.sessionId}`, {
+      method: 'PATCH',
+      headers: this.getHeaders(),
+      body: JSON.stringify(settings)
+    });
+    if (!res.ok) {
+      const payload = await res.json().catch(() => ({}));
+      throw new Error(payload.error || `HTTP ${res.status}`);
+    }
+    const data = await res.json();
+    this.sessionData = { ...this.sessionData, ...data };
+    return data;
   }
 
   async compactSession() {
@@ -356,7 +357,7 @@ function MessagesArea({ messages, activeStream, maxRows }) {
   },
     recentMessages.length === 0 && !activeStream
       ? createElement(Box, { paddingY: 0 },
-          createElement(Text, { color: 'gray', dimColor: true }, 'Belum ada percakapan. Tulis instruksi coding atau ketik / untuk command palette.')
+          createElement(Text, { color: 'gray', dimColor: true }, 'Belum ada percakapan. Tulis pertanyaan atau tugas apa pun, atau ketik / untuk melihat commands.')
         )
       : null,
 
@@ -421,10 +422,10 @@ function CommandPalette({ commands, selectedIndex, scrollOffset, pageSize }) {
     'Mode': 'yellow',
     'Git': 'green',
     'Model': 'magenta',
-    'Sesi': 'blue',
-    'Sistem': 'red',
-    'Bantuan': 'cyan',
-    'Tampilan': 'gray'
+    'Session': 'blue',
+    'System': 'red',
+    'Help': 'cyan',
+    'UI': 'gray'
   };
 
   return createElement(Box, {
@@ -478,6 +479,39 @@ function CommandPalette({ commands, selectedIndex, scrollOffset, pageSize }) {
   );
 }
 
+function ProviderPalette({ providers, selectedIndex }) {
+  if (!providers?.length) return null;
+  return createElement(Box, {
+    flexDirection: 'column',
+    borderStyle: 'round',
+    borderColor: 'magenta',
+    paddingX: 1,
+    marginY: 0
+  },
+    createElement(Box, { flexDirection: 'row' },
+      createElement(Text, { color: 'magenta', bold: true }, '🔌 PROVIDER SELECTOR '),
+      createElement(Spacer),
+      createElement(Text, { color: 'gray', dimColor: true }, '↑/↓ pilih • Enter aktifkan • Esc tutup')
+    ),
+    ...providers.map((provider, index) => {
+      const selected = index === selectedIndex;
+      return createElement(Box, { key: provider.name, flexDirection: 'row' },
+        createElement(Text, {
+          color: selected ? 'black' : 'cyan',
+          backgroundColor: selected ? 'magenta' : undefined,
+          bold: selected
+        }, `${selected ? '❯ ' : '  '}${provider.label.padEnd(20)}`),
+        createElement(Text, { color: provider.configured ? 'green' : 'yellow' },
+          provider.configured ? 'Configured' : 'Missing API key'),
+        createElement(Spacer),
+        createElement(Text, { color: provider.active ? 'green' : 'gray' },
+          provider.active ? '● ACTIVE' : ''),
+        createElement(Text, { color: 'gray' }, `  ${provider.model}`)
+      );
+    })
+  );
+}
+
 function InputBox({ input, mode, isBusy }) {
   return createElement(Box, {
     borderStyle: 'round',
@@ -487,7 +521,7 @@ function InputBox({ input, mode, isBusy }) {
   },
     createElement(Text, { color: 'cyan', bold: true }, `[${mode.toUpperCase()}] ❯ `),
     createElement(Text, { color: isBusy ? 'gray' : 'white' },
-      input || (isBusy ? 'NexusAI sedang memproses... tunggu sejenak' : 'Ketik instruksi coding atau ketik / untuk command palette...')
+      input || (isBusy ? 'NexusAI sedang memproses... tunggu sejenak' : 'Tulis pertanyaan atau tugas apa pun, atau ketik / untuk commands...')
     ),
     !isBusy ? createElement(Text, { color: 'cyan' }, '█') : null
   );
@@ -513,6 +547,8 @@ function NexusTUIApp({ client, snapshotManager }) {
   const [input, setInput] = useState('');
   const [selectedCmdIndex, setSelectedCmdIndex] = useState(0);
   const [scrollOffset, setScrollOffset] = useState(0);
+  const [providerPickerOpen, setProviderPickerOpen] = useState(false);
+  const [selectedProviderIndex, setSelectedProviderIndex] = useState(0);
   const [tokenUsage, setTokenUsage] = useState(0);
   const [gitBranch, setGitBranch] = useState('');
   const [pendingPermission, setPendingPermission] = useState(null);
@@ -532,6 +568,8 @@ function NexusTUIApp({ client, snapshotManager }) {
   const filteredCommands = isSlashActive
     ? ALL_COMMANDS.filter(c => c.cmd.toLowerCase().startsWith(input.trim().toLowerCase().split(' ')[0]))
     : [];
+  const providerOptions = getProviderCatalog(session?.model);
+  const commandPageSize = input.trim() === '/' ? filteredCommands.length : PAGE_SIZE;
 
   // Reset scroll and selection index if query changes
   useEffect(() => {
@@ -539,8 +577,9 @@ function NexusTUIApp({ client, snapshotManager }) {
     setScrollOffset(0);
   }, [input]);
 
-  // Dynamic max message rows based on terminal height
-  const maxMessageRows = Math.max(3, Math.min(20, (rows || 28) - (isSlashActive ? 15 : 8)));
+  // Make room for the complete slash palette without hiding the input.
+  const paletteRows = isSlashActive ? Math.min(filteredCommands.length + 3, Math.max(0, (rows || 28) - 7)) : 0;
+  const maxMessageRows = Math.max(3, Math.min(20, (rows || 28) - (isSlashActive ? paletteRows + 4 : 8)));
 
   // Mascot & Animation effect
   useEffect(() => {
@@ -570,7 +609,8 @@ function NexusTUIApp({ client, snapshotManager }) {
 
     // /help or just /
     if (trimmed === '/help' || trimmed === '/') {
-      const helpText = `DAFTAR PERINTAH LENGKAP:\n• Mode:\n  /plan           - Beralih ke mode read-only (blokir mutasi file)\n  /build          - Beralih ke mode build (eksekusi penuh: write, bash)\n• Model & Konteks:\n  /model [nama]   - Lihat atau ganti model LLM aktif\n  /cost, /usage   - Laporan konsumsi token dan estimasi biaya USD\n  /compact        - Pangkas riwayat percakapan untuk hemat token\n• Git & Checkpoint:\n  /diff           - Lihat git diff perubahan workspace saat ini\n  /undo           - Kembalikan workspace ke checkpoint sebelumnya\n  /redo           - Majukan workspace ke checkpoint berikutnya\n  /checkpoints    - Lihat daftar seluruh checkpoint git sesi ini\n  /checkpoint [l] - Buat checkpoint git manual bernama\n• Sesi:\n  /export [path]  - Ekspor percakapan ke file HTML mandiri\n  /sessions       - Lihat daftar seluruh sesi yang tersimpan\n  /resume <id>    - Lanjutkan sesi tersimpan\n  /new            - Mulai sesi baru yang bersih\n• Sistem:\n  /doctor         - Cek kesehatan environment (Node, Git, Docker, Tools)\n  /init           - Inisialisasi folder .agent/ dan agent.config.json\n  /abort          - Batalkan proses aktif yang sedang berjalan\n  /clear          - Bersihkan riwayat chat di layar\n  exit / quit     - Keluar dari aplikasi`;
+      const helpText = `AVAILABLE COMMANDS:
+${ALL_COMMANDS.map(command => `${command.cmd.padEnd(14)} ${command.desc}`).join('\\n')}`;
 
       setMessages(prev => [
         ...prev,
@@ -580,9 +620,26 @@ function NexusTUIApp({ client, snapshotManager }) {
       return;
     }
 
+    if (trimmed === '/exit' || trimmed === '/quit' || trimmed === 'exit' || trimmed === 'quit') {
+      exit();
+      return;
+    }
+
+    if (trimmed === '/provider') {
+      const activeIndex = providerOptions.findIndex(provider => provider.active);
+      setSelectedProviderIndex(activeIndex >= 0 ? activeIndex : 0);
+      setProviderPickerOpen(true);
+      return;
+    }
+
     if (trimmed === '/plan') {
-      setSession(s => ({ ...s, mode: 'plan' }));
-      client.sessionData.mode = 'plan';
+      try {
+        const updated = await client.updateSessionSettings({ mode: 'plan' });
+        setSession(current => ({ ...current, ...updated }));
+      } catch (err) {
+        setMessages(prev => [...prev, { role: 'assistant', content: `Failed to update mode: ${err.message}` }]);
+        return;
+      }
       setMessages(prev => [
         ...prev,
         { role: 'user', content: trimmed },
@@ -592,8 +649,13 @@ function NexusTUIApp({ client, snapshotManager }) {
     }
 
     if (trimmed === '/build') {
-      setSession(s => ({ ...s, mode: 'build' }));
-      client.sessionData.mode = 'build';
+      try {
+        const updated = await client.updateSessionSettings({ mode: 'build' });
+        setSession(current => ({ ...current, ...updated }));
+      } catch (err) {
+        setMessages(prev => [...prev, { role: 'assistant', content: `Failed to update mode: ${err.message}` }]);
+        return;
+      }
       setMessages(prev => [
         ...prev,
         { role: 'user', content: trimmed },
@@ -611,8 +673,13 @@ function NexusTUIApp({ client, snapshotManager }) {
           { role: 'assistant', content: `Model aktif: ${session.model || 'default'}. Ketik /model <nama> untuk mengganti.` }
         ]);
       } else {
-        setSession(s => ({ ...s, model: newModel }));
-        client.sessionData.model = newModel;
+        try {
+          const updated = await client.updateSessionSettings({ model: newModel });
+          setSession(current => ({ ...current, ...updated }));
+        } catch (err) {
+          setMessages(prev => [...prev, { role: 'assistant', content: `Failed to switch model: ${err.message}` }]);
+          return;
+        }
         setMessages(prev => [
           ...prev,
           { role: 'user', content: trimmed },
@@ -951,6 +1018,44 @@ function NexusTUIApp({ client, snapshotManager }) {
       return;
     }
 
+    // Provider picker keyboard navigation.
+    if (providerPickerOpen) {
+      if (key.escape) {
+        setProviderPickerOpen(false);
+        return;
+      }
+      if (key.upArrow) {
+        setSelectedProviderIndex(index => Math.max(0, index - 1));
+        return;
+      }
+      if (key.downArrow) {
+        setSelectedProviderIndex(index => Math.min(providerOptions.length - 1, index + 1));
+        return;
+      }
+      if (key.return) {
+        const provider = providerOptions[selectedProviderIndex];
+        if (!provider) return;
+        if (!provider.configured) {
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: `Provider ${provider.label} belum dikonfigurasi. Atur ${provider.keyVariable} di .env terlebih dahulu.`
+          }]);
+          return;
+        }
+        const model = `${provider.name}/${provider.model}`;
+        client.updateSessionSettings({ model }).then(updated => {
+          setSession(current => ({ ...current, ...updated }));
+          setMessages(prev => [...prev, { role: 'assistant', content: `Provider aktif: ${provider.label} • ${provider.model}` }]);
+        }).catch(err => {
+          setMessages(prev => [...prev, { role: 'assistant', content: `Gagal mengganti provider: ${err.message}` }]);
+        });
+        setProviderPickerOpen(false);
+        setInput('');
+        return;
+      }
+      return;
+    }
+
     // Interactive command palette navigation when typing /
     if (isSlashActive && filteredCommands.length > 0) {
       // Escape: dismiss palette
@@ -965,7 +1070,7 @@ function NexusTUIApp({ client, snapshotManager }) {
         setSelectedCmdIndex(prevIdx);
         if (prevIdx === filteredCommands.length - 1) {
           // Wrapped to bottom
-          setScrollOffset(Math.max(0, filteredCommands.length - PAGE_SIZE));
+          setScrollOffset(Math.max(0, filteredCommands.length - commandPageSize));
         } else if (prevIdx < scrollOffset) {
           setScrollOffset(prevIdx);
         }
@@ -979,7 +1084,7 @@ function NexusTUIApp({ client, snapshotManager }) {
         if (nextIdx === 0) {
           // Wrapped to top
           setScrollOffset(0);
-        } else if (nextIdx >= scrollOffset + PAGE_SIZE) {
+        } else if (nextIdx >= scrollOffset + commandPageSize) {
           setScrollOffset(nextIdx - PAGE_SIZE + 1);
         }
         return;
@@ -991,6 +1096,13 @@ function NexusTUIApp({ client, snapshotManager }) {
         if (chosen) {
           setInput(chosen.cmd + (chosen.needsArg ? ' ' : ''));
         }
+        return;
+      }
+
+      // A bare slash opens help; it must not accidentally select the first command.
+      if (key.return && input.trim() === '/') {
+        setInput('');
+        handleExecute('/');
         return;
       }
 
@@ -1061,8 +1173,11 @@ function NexusTUIApp({ client, snapshotManager }) {
           commands: filteredCommands,
           selectedIndex: selectedCmdIndex,
           scrollOffset,
-          pageSize: PAGE_SIZE
+          pageSize: commandPageSize
         })
+      : null,
+    providerPickerOpen
+      ? createElement(ProviderPalette, { providers: providerOptions, selectedIndex: selectedProviderIndex })
       : null,
     createElement(InputBox, { input, mode: session?.mode || 'build', isBusy }),
     createElement(FooterBar)

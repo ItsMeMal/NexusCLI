@@ -228,6 +228,8 @@ describe('UI Module', () => {
 });
 
 import { COMMANDS_REGISTRY } from '../src/core/prompt_input.js';
+import { buildSystemPrompt } from '../src/core/prompt.js';
+import { parseModelConfig } from '../src/core/providers/index.js';
 
 describe('Prompt Input Module', () => {
   test('COMMANDS_REGISTRY contains core commands', () => {
@@ -238,5 +240,59 @@ describe('Prompt Input Module', () => {
     assert.ok(cmds.includes('/diff'));
     assert.ok(cmds.includes('/doctor'));
     assert.ok(cmds.includes('/cost'));
+  });
+});
+
+
+describe('General-purpose agent and provider selection', () => {
+  test('system prompt does not assume every request is a coding task', () => {
+    const prompt = buildSystemPrompt({ workingDir: path.resolve('test/fixtures/calculator') });
+    assert.match(prompt, /general-purpose AI agent/i);
+    assert.match(prompt, /Do not assume every request is a coding task/i);
+    assert.doesNotMatch(prompt, /expert autonomous coding agent CLI/i);
+  });
+
+  test('provider picker and abort are discoverable in shared command registry', () => {
+    const provider = COMMANDS_REGISTRY.find(command => command.cmd === '/provider');
+    assert.ok(provider);
+    assert.equal(provider.needsArg, false);
+    assert.ok(COMMANDS_REGISTRY.some(command => command.cmd === '/abort'));
+  });
+
+  test('Anthropic provider uses its own API key and base URL', () => {
+    const previousKey = process.env.ANTHROPIC_API_KEY;
+    const previousBaseUrl = process.env.ANTHROPIC_BASE_URL;
+    process.env.ANTHROPIC_API_KEY = 'anthropic-test-key-long-enough';
+    process.env.ANTHROPIC_BASE_URL = 'https://anthropic.example/v1/';
+    try {
+      const config = parseModelConfig('anthropic/claude-test');
+      assert.equal(config.provider, 'anthropic');
+      assert.equal(config.model, 'claude-test');
+      assert.equal(config.apiKey, 'anthropic-test-key-long-enough');
+      assert.equal(config.baseUrl, 'https://anthropic.example/v1');
+    } finally {
+      if (previousKey === undefined) delete process.env.ANTHROPIC_API_KEY;
+      else process.env.ANTHROPIC_API_KEY = previousKey;
+      if (previousBaseUrl === undefined) delete process.env.ANTHROPIC_BASE_URL;
+      else process.env.ANTHROPIC_BASE_URL = previousBaseUrl;
+    }
+  });
+
+  test('provider parser preserves slashes inside model identifiers', () => {
+    const previousKey = process.env.API_KEY;
+    const previousBaseUrl = process.env.BASE_URL;
+    process.env.API_KEY = 'openai-test-key-long-enough';
+    process.env.BASE_URL = 'https://gateway.example/v1/';
+    try {
+      const config = parseModelConfig('openai-compatible/org/model-name');
+      assert.equal(config.provider, 'openai-compatible');
+      assert.equal(config.model, 'org/model-name');
+      assert.equal(config.baseUrl, 'https://gateway.example/v1');
+    } finally {
+      if (previousKey === undefined) delete process.env.API_KEY;
+      else process.env.API_KEY = previousKey;
+      if (previousBaseUrl === undefined) delete process.env.BASE_URL;
+      else process.env.BASE_URL = previousBaseUrl;
+    }
   });
 });

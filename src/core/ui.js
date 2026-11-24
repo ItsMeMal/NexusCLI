@@ -201,14 +201,16 @@ export function renderCommandList() {
     { cmd: '/checkpoints', cat: 'GIT', desc: 'List git checkpoints' },
     { cmd: '/checkpoint [l]', cat: 'GIT', desc: 'Create manual checkpoint' },
     { cmd: '/doctor', cat: 'SYS', desc: 'System & env diagnostic' },
+    { cmd: '/abort', cat: 'SYS', desc: 'Stop the current task' },
     { cmd: '/init', cat: 'SYS', desc: 'Scaffold .agent/ config' },
     { cmd: '/clear', cat: 'UI', desc: 'Clear terminal screen' }
   ];
 
   const rightCommands = [
     { cmd: '/model [name]', cat: 'MODEL', desc: 'Switch or view active LLM' },
-    { cmd: '/provider [cmd]', cat: 'MODEL', desc: 'Manage LLM providers' },
+    { cmd: '/provider [cmd]', cat: 'MODEL', desc: 'Open the provider selection menu' },
     { cmd: '/cost', cat: 'MODEL', desc: 'Token usage & USD pricing' },
+    { cmd: '/usage', cat: 'MODEL', desc: 'Alias for /cost' },
     { cmd: '/compact', cat: 'MODEL', desc: 'Prune chat history for tokens' },
     { cmd: '/sessions', cat: 'SES', desc: 'List all saved sessions' },
     { cmd: '/resume <id>', cat: 'SES', desc: 'Resume session by ID' },

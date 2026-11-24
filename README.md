@@ -1,12 +1,14 @@
-# Nexus Coding Agent CLI
+# NexusCLI — General-Purpose AI Agent
 
-Coding agent berbasis terminal mirip OpenCode yang dibangun dari nol menggunakan Node.js (ESM). LLM memanggil tools (`read_file`, `write_file`, `edit_file`, `bash`, `grep`, `glob`, `todo`, `webfetch`, `repo_map`, `task`) dalam agent loop sampai tugas selesai.
+General-purpose AI agent berbasis terminal dengan tool calling, sesi percakapan, provider abstraction, skills, dan kemampuan bekerja dengan workspace ketika memang diminta.
 
 Arsitektur: **Core + Server (HTTP/SSE) + Multi-Client (CLI/TUI)**.
 
 ---
 
 ## Fitur Utama
+
+- **General-Purpose Agent**: Menangani percakapan, penjelasan, riset, penulisan, analisis, perencanaan, troubleshooting, dan coding sesuai kebutuhan. Agent tidak otomatis menganggap setiap permintaan sebagai tugas coding.
 
 - **10 Core Tools**: `read_file`, `write_file`, `edit_file`, `bash`, `grep` (ripgrep fallback), `glob`, `todo`, `webfetch`, `repo_map`, `task`.
 - **Client/Server Architecture**: REST API + Server-Sent Events (SSE) streaming.
@@ -293,7 +295,7 @@ Nexus membuat checkpoint setiap kali ada perubahan di mode `build`:
 
 ## Daftar Slash Command
 
-Ketik `/` lalu tekan **Enter** atau tekan tombol **Tab** di terminal kapan saja untuk autocompletion command:
+Ketik `/` untuk melihat seluruh command beserta deskripsinya. Gunakan tombol panah untuk navigasi, **Enter** untuk memilih, dan **Tab** untuk melengkapi command:
 
 | Kategori | Command | Deskripsi |
 |---|---|---|

@@ -2,7 +2,7 @@
   "name": "nexus-cli",
   "version": "0.1.0",
   "type": "module",
-  "description": "Coding agent CLI from scratch",
+  "description": "General-purpose AI agent CLI with tool calling and workspace capabilities",
   "main": "src/cli.js",
   "bin": {
     "nexus": "src/cli.js"
