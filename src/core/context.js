@@ -339,7 +339,7 @@ export function calculateCost(messages, model) {
 function formatUsageDescription(usage) {
   const { usedTokens, maxTokens, usageRatio, modelName, exceeded } = usage;
   const status = exceeded ? '⚠ OVER' : '✓ OK';
-  return `${status} | ${modelName}: ${usedTokens.toLocaleString()} / ${maxTokens.toLocaleString()} token (${(usageRatio * 100).toFixed(1)}%)`;
+  return `${status} | ${modelName}: ${usedTokens.toLocaleString('id-ID')} / ${maxTokens.toLocaleString('id-ID')} token (${(usageRatio * 100).toFixed(1)}%)`;
 }
 
 export { formatUsageDescription };
