@@ -10,6 +10,7 @@ export const COMMANDS_REGISTRY = [
   { cmd: '/checkpoints', cat: 'Git', desc: 'List all git checkpoints captured in session', needsArg: false },
   { cmd: '/checkpoint', cat: 'Git', desc: 'Create manual checkpoint (/checkpoint [label])', needsArg: true },
   { cmd: '/model', cat: 'Model', desc: 'Switch or view active LLM (/model <name>)', needsArg: true },
+  { cmd: '/provider', cat: 'Model', desc: 'Manage LLM providers (/provider add|list|remove)', needsArg: true },
   { cmd: '/cost', cat: 'Model', desc: 'View token usage stats and estimated cost breakdown', needsArg: false },
   { cmd: '/usage', cat: 'Model', desc: 'Alias for /cost', needsArg: false },
   { cmd: '/compact', cat: 'Model', desc: 'Manually prune and compact conversation context', needsArg: false },
@@ -24,6 +25,165 @@ export const COMMANDS_REGISTRY = [
   { cmd: '/exit', cat: 'System', desc: 'Exit Nexus CLI session', needsArg: false },
   { cmd: 'exit', cat: 'System', desc: 'Exit Nexus CLI session', needsArg: false }
 ];
+
+/** Urutan kategori untuk grouping list command di hint bar. */
+const CAT_ORDER = ['Mode', 'Git', 'Model', 'Session', 'System', 'UI', 'Help'];
+
+/**
+ * Bangun list baris hint untuk input slash.
+ * Semua command yang cocok ditampilkan, dikelompokkan per kategori.
+ * @param {string} query - Bagian pertama buffer (contoh: "/" atau "/pl")
+ * @param {Array} matches - Flat list command yang cocok
+ * @param {number} tabCycleIdx - Indeks chip yang ter-highlight
+ * @returns {Array<string>} Baris-baris hint
+ */
+function buildHintLines(query, matches, tabCycleIdx) {
+  const flat = matches.map((m) => m.cmd.toLowerCase());
+  const lines = [];
+
+  for (const cat of CAT_ORDER) {
+    const cmds = matches.filter((m) => m.cat === cat);
+    if (cmds.length === 0) continue;
+    const chips = cmds.map((m) => {
+      const flatIdx = flat.indexOf(m.cmd.toLowerCase());
+      const isHi = tabCycleIdx >= 0 && (tabCycleIdx % matches.length) === flatIdx;
+      return isHi ? `${c.cyan}${c.bold}[${m.cmd}]${c.reset}` : `${c.dim}${m.cmd}${c.reset}`;
+    }).join(' ');
+    lines.push(`  ${c.magenta}${c.bold}${cat}${c.reset} ${c.dim}›${c.reset} ${chips}`);
+  }
+
+  lines.push(`  ${c.cyan}✦${c.reset} ${c.dim}[Tab] cycle • [Enter] pilih • [↑↓] navigasi${c.reset}`);
+  return lines;
+}
+
+/**
+ * Interactive selection menu (UI pemilihan) dengan navigasi panah.
+ * Render box option bernomor; ↑/↓ memilih, Enter konfirmasi, Esc batal,
+ * angka = lompat langsung ke opsi.
+ *
+ * @param {Object} options
+ * @param {string} options.title - Judul menu (contoh: "PILIH MODEL")
+ * @param {string} [options.icon] - Emoji ikon judul
+ * @param {Array<{label: string, desc?: string, active?: boolean}>} options.options
+ * @returns {Promise<number>} Indeks opsi terpilih, atau -1 jika batal
+ */
+export async function promptSelect({ title, icon = '', options: opts, footer }) {
+  const boxW = 74;
+  const foot = footer || '↑↓ pilih • [Enter] ok • [Esc] batal • ketik nomor';
+
+  const titleText = ` ${icon ? icon + ' ' : ''}${c.bold}${title}${c.reset} `;
+  const titleFill = Math.max(1, boxW - 3 - stripAnsi(titleText).length);
+  const topRow = `${c.cyan}╭─${c.reset}${titleText}${c.dim}${'─'.repeat(titleFill)}${c.reset}${c.cyan}╮${c.reset}`;
+  const bottomRow = `${c.cyan}╰${'─'.repeat(boxW - 2)}╯${c.reset}`;
+
+  const optionRow = (o, i, isSel) => {
+    const mark = o.active ? ` ${c.green}${c.bold}◀ aktif${c.reset}` : '';
+    const prefix = isSel ? `${c.bgCyan}${c.black}${c.bold} ❯ ${c.reset}` : '   ';
+    const num = `${c.magenta}${c.bold}[${i + 1}]${c.reset}`;
+    const label = `${c.bold}${o.label}${c.reset}${mark}`;
+    const desc = o.desc ? `  ${c.dim}${o.desc}${c.reset}` : '';
+    return `${c.cyan}│${c.reset}${prefix}${num} ${label}${desc}`;
+  };
+
+  const renderBlock = (sel) => {
+    const lines = [topRow];
+    opts.forEach((o, i) => lines.push(optionRow(o, i, i === sel)));
+    lines.push(bottomRow);
+    lines.push(`  ${c.dim}${foot}${c.reset}`);
+    return lines;
+  };
+
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    // Fallback non-TTY: cetak list, minta input nomor
+    for (const ln of renderBlock(-1)) process.stdout.write(ln + '\n');
+    return new Promise((resolve) => {
+      const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+      process.stdout.write(`  ${c.bold}Pilih nomor [1-${opts.length}]${c.reset} ${c.dim}(Enter batal):${c.reset} `);
+      rl.question('', (ans) => {
+        rl.close();
+        const n = parseInt(ans.trim(), 10);
+        resolve(n >= 1 && n <= opts.length ? n - 1 : -1);
+      });
+    });
+  }
+
+  return new Promise((resolve) => {
+    let sel = opts.findIndex((o) => o.active);
+    if (sel < 0) sel = 0;
+    let drawn = 0;
+
+    const drawBlock = (lines) => {
+      const prev = drawn;
+      if (prev > 0) process.stdout.write(`\x1b[${prev - 1}A`);
+      lines.forEach((ln, i) => {
+        process.stdout.write((i === 0 ? '\r\x1b[K' : '\n\x1b[K') + ln);
+      });
+      drawn = lines.length;
+    };
+
+    const finish = (result) => {
+      if (drawn > 0) {
+        process.stdout.write(`\x1b[${drawn - 1}A`);
+        for (let i = 0; i < drawn; i++) {
+          process.stdout.write((i === 0 ? '\r' : '\n') + '\x1b[K');
+        }
+        process.stdout.write(`\x1b[${drawn}A\r`);
+        drawn = 0;
+      }
+      process.stdout.write('\n');
+      process.stdin.removeListener('keypress', onKeypress);
+      if (!wasRaw) {
+        process.stdin.setRawMode(false);
+      }
+      resolve(result);
+    };
+
+    readline.emitKeypressEvents(process.stdin);
+    const wasRaw = process.stdin.isRaw;
+    process.stdin.setRawMode(true);
+    process.stdin.resume();
+
+    const onKeypress = (str, key) => {
+      if (key && key.ctrl && key.name === 'c') {
+        finish(-1);
+        process.exit(0);
+        return;
+      }
+      if (key && key.name === 'escape') {
+        finish(-1);
+        return;
+      }
+      if (key && key.name === 'up') {
+        if (sel > 0) {
+          sel--;
+          drawBlock(renderBlock(sel));
+        }
+        return;
+      }
+      if (key && key.name === 'down') {
+        if (sel < opts.length - 1) {
+          sel++;
+          drawBlock(renderBlock(sel));
+        }
+        return;
+      }
+      if (key && (key.name === 'return' || key.name === 'enter')) {
+        finish(sel);
+        return;
+      }
+      if (str && /^[0-9]$/.test(str)) {
+        const target = parseInt(str, 10) - 1;
+        if (target >= 0 && target < opts.length) {
+          sel = target;
+          drawBlock(renderBlock(sel));
+        }
+      }
+    };
+
+    process.stdin.on('keypress', onKeypress);
+    drawBlock(renderBlock(sel));
+  });
+}
 
 /**
  * Prompt user for input with real-time slash suggestions.
@@ -56,7 +216,7 @@ export async function promptWithAutocomplete({ header = '', arrow = '╰─❯ '
     let cursorPos = 0;
     let tabCycleIdx = -1;
     let historyIdx = -1;
-    let hasDrawnHint = false;
+    let drawnHintLines = 0;
 
     readline.emitKeypressEvents(process.stdin);
     const wasRaw = process.stdin.isRaw;
@@ -67,6 +227,38 @@ export async function promptWithAutocomplete({ header = '', arrow = '╰─❯ '
       process.stdout.write(header);
     }
 
+    /**
+     * Tulis block hint di bawah baris prompt dengan clearing yang benar:
+     * semua baris lama di-clear, lalu naik kembali ke baris prompt.
+     * @param {Array<string>} lines - Baris hint baru (bisa kosong)
+     */
+    const drawHintBlock = (lines) => {
+      const rows = Math.max(drawnHintLines, lines.length);
+      if (rows === 0) {
+        drawnHintLines = 0;
+        return;
+      }
+      process.stdout.write('\n');
+      for (let i = 0; i < rows; i++) {
+        if (i > 0) process.stdout.write('\n');
+        process.stdout.write('\x1b[K');
+        if (lines[i]) process.stdout.write(lines[i]);
+      }
+      process.stdout.write(`\x1b[${rows}A`);
+      drawnHintLines = Math.max(lines.length, 1);
+    };
+
+    const clearHintBlock = () => {
+      if (drawnHintLines === 0) return;
+      process.stdout.write('\n');
+      for (let i = 0; i < drawnHintLines; i++) {
+        if (i > 0) process.stdout.write('\n');
+        process.stdout.write('\x1b[K');
+      }
+      process.stdout.write(`\x1b[${drawnHintLines}A`);
+      drawnHintLines = 0;
+    };
+
     const render = () => {
       const arrowVisualLen = stripAnsi(arrow).length;
       const targetCol = arrowVisualLen + cursorPos + 1;
@@ -74,42 +266,26 @@ export async function promptWithAutocomplete({ header = '', arrow = '╰─❯ '
       // 1. Draw prompt line
       process.stdout.write('\r\x1b[K' + arrow + buffer);
 
-      // 2. Check slash commands
+      // 2. Build hint lines for slash input
       const isSlash = buffer.startsWith('/');
-      let hintLine = '';
-
+      let hintLines = [];
       if (isSlash) {
         const query = buffer.trim().toLowerCase().split(/\s+/)[0];
-        const matches = COMMANDS_REGISTRY.filter((c) => c.cmd.toLowerCase().startsWith(query));
-
+        const matches = COMMANDS_REGISTRY.filter((cmd) => cmd.cmd.toLowerCase().startsWith(query));
         if (matches.length > 0) {
-          const visibleChips = matches.slice(0, 6).map((m, idx) => {
-            const isHighlighted = tabCycleIdx >= 0 && (tabCycleIdx % matches.length) === idx;
-            if (isHighlighted) {
-              return `${c.cyan}${c.bold}[${m.cmd}]${c.reset}`;
-            }
-            return `${c.dim}${m.cmd}${c.reset}`;
-          }).join('  ');
-
-          const more = matches.length > 6 ? ` ${c.dim}+${matches.length - 6} more${c.reset}` : '';
-          hintLine = `  ${c.cyan}✦${c.reset} ${visibleChips}${more} ${c.dim}• [Tab] cycle • [Enter] select${c.reset}`;
+          hintLines = buildHintLines(query, matches, tabCycleIdx);
         } else {
-          hintLine = `  ${c.amber}✦ No command match for "${query}"${c.reset} ${c.dim}(press [Enter] for menu)${c.reset}`;
+          hintLines = [`  ${c.amber}✦ No command match for "${query}"${c.reset} ${c.dim}(press [Enter] for menu)${c.reset}`];
         }
       }
 
-      // Always clear line below and write hint (or empty line)
-      process.stdout.write('\n\x1b[K' + hintLine);
-      hasDrawnHint = true;
-
-      // Move cursor back up to arrow line and set column
-      process.stdout.write(`\x1b[1A\r\x1b[${targetCol}G`);
+      // 3. Draw hint block below prompt, then return cursor to prompt line
+      drawHintBlock(hintLines);
+      process.stdout.write(`\x1b[${targetCol}G`);
     };
 
     const cleanupAndResolve = (result) => {
-      if (hasDrawnHint) {
-        process.stdout.write('\n\x1b[K\x1b[1A');
-      }
+      clearHintBlock();
       process.stdout.write('\r\x1b[K' + arrow + result + '\n');
 
       process.stdin.removeListener('keypress', onKeypress);
@@ -122,7 +298,7 @@ export async function promptWithAutocomplete({ header = '', arrow = '╰─❯ '
     const onKeypress = (str, key) => {
       // Ctrl+C: Cancel / Exit
       if (key && key.ctrl && key.name === 'c') {
-        if (hasDrawnHint) process.stdout.write('\n\x1b[K\x1b[1A');
+        clearHintBlock();
         process.stdout.write('\n');
         process.stdin.removeListener('keypress', onKeypress);
         if (!wasRaw) process.stdin.setRawMode(false);

@@ -57,6 +57,12 @@ export class Spinner {
 
   start(text) {
     if (text) this.text = text;
+    // Clear any previous interval before starting a new one (prevents timer leaks
+    // when start() is called twice, e.g. consecutive tool events).
+    if (this.timer) {
+      clearInterval(this.timer);
+      this.timer = null;
+    }
     this.startTime = Date.now();
     this.active = true;
     this.frameIndex = 0;
@@ -78,6 +84,9 @@ export class Spinner {
   }
 
   stop(clear = true) {
+    // Track whether the spinner actually owns the current line. A second stop()
+    // (e.g. onDone after the response already streamed) must NOT wipe output.
+    const wasRunning = Boolean(this.timer);
     if (this.timer) {
       clearInterval(this.timer);
       this.timer = null;
@@ -85,7 +94,7 @@ export class Spinner {
     this.active = false;
     // Show cursor
     process.stdout.write('\x1b[?25h');
-    if (clear) {
+    if (clear && wasRunning) {
       process.stdout.write('\r\x1b[K');
     }
   }
@@ -198,6 +207,7 @@ export function renderCommandList() {
 
   const rightCommands = [
     { cmd: '/model [name]', cat: 'MODEL', desc: 'Switch or view active LLM' },
+    { cmd: '/provider [cmd]', cat: 'MODEL', desc: 'Manage LLM providers' },
     { cmd: '/cost', cat: 'MODEL', desc: 'Token usage & USD pricing' },
     { cmd: '/compact', cat: 'MODEL', desc: 'Prune chat history for tokens' },
     { cmd: '/sessions', cat: 'SES', desc: 'List all saved sessions' },

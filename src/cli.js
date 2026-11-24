@@ -544,6 +544,76 @@ async function runInteractive(parsed) {
       continue;
     }
 
+    // Provider management
+    if (trimmed.startsWith('/provider')) {
+      const args = trimmed.slice(9).trim().split(/\s+/);
+      const subCmd = args[0]?.toLowerCase() || 'list';
+      const providersDir = path.resolve(process.cwd(), '.agent', 'providers');
+      
+      if (!fs.existsSync(providersDir)) {
+        fs.mkdirSync(providersDir, { recursive: true });
+      }
+      
+      const configPath = path.resolve(providersDir, 'config.json');
+      let providers = { providers: {} };
+      if (fs.existsSync(configPath)) {
+        try {
+          providers = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+        } catch {}
+      }
+      
+      if (subCmd === 'list') {
+        console.log(`\n${c.cyan}╭── 🔌 CONFIGURED PROVIDERS ─────────────────────────────────────────────────╮${c.reset}`);
+        const providerEntries = Object.entries(providers.providers || {});
+        if (providerEntries.length === 0) {
+          console.log(`${c.cyan}│${c.reset}  ${c.dim}No providers configured. Use /provider add <name> <base_url> <api_key>${c.reset}`);
+        } else {
+          for (const [name, cfg] of providerEntries) {
+            const activeMark = name === client.sessionData.provider ? ` ${c.green}${c.bold}◀ ACTIVE${c.reset}` : '';
+            const modelCount = Array.isArray(cfg.models) ? cfg.models.length : 0;
+            console.log(`${c.cyan}│${c.reset}  ${c.bold}${name}${c.reset}${activeMark}`);
+            console.log(`${c.cyan}│${c.reset}    ${c.dim}Base URL:${c.reset} ${c.slate}${cfg.base_url || 'N/A'}${c.reset}  ${c.dim}Models:${c.reset} ${modelCount}`);
+          }
+        }
+        console.log(`${c.cyan}╰────────────────────────────────────────────────────────────────────────────╯${c.reset}\n`);
+        continue;
+      }
+      
+      if (subCmd === 'add') {
+        const name = args[1];
+        const baseUrl = args[2];
+        const apiKey = args[3];
+        if (!name || !baseUrl || !apiKey) {
+          console.log(`\n  ${c.dim}Usage: /provider add <name> <base_url> <api_key>${c.reset}\n`);
+          console.log(`  ${c.dim}Example: /provider add openai https://api.openai.com/v1 sk-xxx${c.reset}\n`);
+          continue;
+        }
+        providers.providers[name] = {
+          base_url: baseUrl,
+          api_key: apiKey,
+          models: providers.providers[name]?.models || []
+        };
+        fs.writeFileSync(configPath, JSON.stringify(providers, null, 2), 'utf8');
+        console.log(`\n  ${c.green}✔ Provider "${name}" added.${c.reset}\n`);
+        continue;
+      }
+      
+      if (subCmd === 'remove') {
+        const name = args[1];
+        if (!name || !providers.providers[name]) {
+          console.log(`\n  ${c.red}✖ Provider "${name}" not found.${c.reset}\n`);
+          continue;
+        }
+        delete providers.providers[name];
+        fs.writeFileSync(configPath, JSON.stringify(providers, null, 2), 'utf8');
+        console.log(`\n  ${c.green}✔ Provider "${name}" removed.${c.reset}\n`);
+        continue;
+      }
+      
+      console.log(`\n  ${c.dim}Usage: /provider list|add|remove [args]${c.reset}\n`);
+      continue;
+    }
+
     // Cost & Usage report
     if (trimmed === '/cost' || trimmed === '/usage') {
       try {

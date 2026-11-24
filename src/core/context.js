@@ -4,6 +4,32 @@ const DEFAULT_MAX_TOKENS = 8192;
 const COMPACTION_THRESHOLD_RATIO = 0.8; // 80% of max tokens
 const MESSAGES_TO_PRESERVE = 6; // Keep last N messages + system prompt
 
+// Preset model yang diketahui: pricing & kapasitas (harga per 1M input/output token USD)
+export const MODEL_PRESETS = {
+  'elaina-free': { maxTokens: 8192, inputPrice: 0, outputPrice: 0, name: 'Elaina-Free' },
+  'gpt-4o': { maxTokens: 128000, inputPrice: 5.00, outputPrice: 15.00, name: 'GPT-4o' },
+  'gpt-4o-mini': { maxTokens: 128000, inputPrice: 0.150, outputPrice: 0.600, name: 'GPT-4o-mini' },
+  'gpt-4': { maxTokens: 8192, inputPrice: 30.00, outputPrice: 60.00, name: 'GPT-4' },
+  'gpt-3.5-turbo': { maxTokens: 16385, inputPrice: 0.50, outputPrice: 1.50, name: 'GPT-3.5-turbo' },
+  'claude-3-opus': { maxTokens: 200000, inputPrice: 15.00, outputPrice: 75.00, name: 'Claude-3-Opus' },
+  'claude-3-sonnet': { maxTokens: 200000, inputPrice: 3.00, outputPrice: 15.00, name: 'Claude-3-Sonnet' },
+  'claude-3-haiku': { maxTokens: 200000, inputPrice: 0.25, outputPrice: 1.25, name: 'Claude-3-Haiku' }
+};
+
+/**
+ * Daftar model preset yang diketahui (untuk UI pemilihan model).
+ * @returns {Array<{key: string, name: string, maxTokens: number, inputPrice: number, outputPrice: number}>}
+ */
+export function listKnownModels() {
+  return Object.entries(MODEL_PRESETS).map(([key, cfg]) => ({
+    key,
+    name: cfg.name,
+    maxTokens: cfg.maxTokens,
+    inputPrice: cfg.inputPrice,
+    outputPrice: cfg.outputPrice
+  }));
+}
+
 /**
  * Estimasi jumlah token dari teks.
  * Pendekatan sederhana: ~4 karakter per token untuk teks English.
@@ -45,19 +71,9 @@ export function estimateMessagesTokens(messages) {
 export function getModelConfig(model) {
   const modelLower = (model || 'Elaina-Free').toLowerCase();
 
-  // Pricing dan max tokens per model (harga per 1M input/output token USD)
-  const modelConfigs = {
-    'elaina-free': { maxTokens: 8192, inputPrice: 0, outputPrice: 0, name: 'Elaina-Free' },
-    'gpt-4o': { maxTokens: 128000, inputPrice: 5.00, outputPrice: 15.00, name: 'GPT-4o' },
-    'gpt-4o-mini': { maxTokens: 128000, inputPrice: 0.150, outputPrice: 0.600, name: 'GPT-4o-mini' },
-    'gpt-4': { maxTokens: 8192, inputPrice: 30.00, outputPrice: 60.00, name: 'GPT-4' },
-    'gpt-3.5-turbo': { maxTokens: 16385, inputPrice: 0.50, outputPrice: 1.50, name: 'GPT-3.5-turbo' },
-    'claude-3-opus': { maxTokens: 200000, inputPrice: 15.00, outputPrice: 75.00, name: 'Claude-3-Opus' },
-    'claude-3-sonnet': { maxTokens: 200000, inputPrice: 3.00, outputPrice: 15.00, name: 'Claude-3-Sonnet' },
-    'claude-3-haiku': { maxTokens: 200000, inputPrice: 0.25, outputPrice: 1.25, name: 'Claude-3-Haiku' },
-  };
+  const cfg = MODEL_PRESETS[modelLower];
 
-  return modelConfigs[modelLower] || {
+  return cfg || {
     maxTokens: DEFAULT_MAX_TOKENS,
     inputPrice: 0,
     outputPrice: 0,
@@ -65,12 +81,8 @@ export function getModelConfig(model) {
   };
 }
 
-/**
- * Menghitung persentase konteks yang digunakan dari total kapasitas model.
- * @param {Array} messages - Array pesan
- * @param {string} model - Nama model
- * @returns {Object} Objektur dengan usedTokens, maxTokens, usageRatio, exceeded
- */
+/* removed duplicate export function listKnownModels — already defined at line 23 */
+
 export function calculateContextUsage(messages, model) {
   const config = getModelConfig(model);
   const usedTokens = estimateMessagesTokens(messages);
