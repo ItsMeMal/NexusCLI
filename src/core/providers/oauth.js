@@ -76,7 +76,9 @@ async function postToken(gateway, fields) {
   return payload;
 }
 
-export async function getOAuthAccessToken(providerId = 'mallss-nexus-route') {
+const refreshPromises = new Map();
+
+async function refreshOAuthAccessToken(providerId) {
   const stored = getOAuthCredential(providerId);
   if (!stored?.accessToken || !stored.refreshToken) {
     throw new Error('Mallss Nexus Route is not connected. Run /connect and authorize NexusCode in your browser.');
@@ -92,11 +94,20 @@ export async function getOAuthAccessToken(providerId = 'mallss-nexus-route') {
       refresh_token: stored.refreshToken
     });
   } catch (error) {
+    if (/expired|revoked|invalid_grant|invalid token/i.test(error.message || '')) clearOAuthCredential(providerId);
     throw new Error('Mallss Nexus Route session could not be refreshed. Run /connect to reconnect. ' + error.message);
   }
   const next = normalizeTokenBundle(payload, stored);
   saveOAuthCredential(providerId, next);
   return next.access_token;
+}
+
+export function getOAuthAccessToken(providerId = 'mallss-nexus-route') {
+  const existing = refreshPromises.get(providerId);
+  if (existing) return existing;
+  const pending = refreshOAuthAccessToken(providerId).finally(() => refreshPromises.delete(providerId));
+  refreshPromises.set(providerId, pending);
+  return pending;
 }
 
 export async function connectMallssNexusRoute({ providerId = 'mallss-nexus-route', gatewayUrl } = {}) {

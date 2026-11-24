@@ -470,7 +470,9 @@ describe('Mallss Nexus Route OAuth integration', () => {
       assert.equal(getProviderPickerCatalog().find(item => item.id === providerId)?.connected, true);
       assert.equal(parseModelConfig(providerId + '/Nexus-Free').authFlow, 'oauth2');
 
+      let refreshCalls = 0;
       globalThis.fetch = async (url, options) => {
+        refreshCalls += 1;
         assert.equal(url, 'https://ai-router.mallss-nexus.sbs/auth/oauth/token');
         assert.equal(options.method, 'POST');
         assert.match(String(options.body), /grant_type=refresh_token/);
@@ -485,7 +487,10 @@ describe('Mallss Nexus Route OAuth integration', () => {
         }), { status: 200, headers: { 'content-type': 'application/json' } });
       };
 
-      const token = await getOAuthAccessToken(providerId);
+      const tokens = await Promise.all([getOAuthAccessToken(providerId), getOAuthAccessToken(providerId)]);
+      assert.deepEqual(tokens, ['mnr-oauth-access-new', 'mnr-oauth-access-new']);
+      assert.equal(refreshCalls, 1, 'Concurrent refreshes must share one token rotation');
+      const token = tokens[0];
       assert.equal(token, 'mnr-oauth-access-new');
       assert.equal(getOAuthCredential(providerId).refreshToken, 'mnr-oauth-refresh-new');
       assert.ok(getOAuthCredential(providerId).expiresAt > Date.now());

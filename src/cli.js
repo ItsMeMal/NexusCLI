@@ -778,6 +778,15 @@ async function runInteractive(parsed) {
           }
         }
 
+        if (provider.connected) {
+          try {
+            await revokeOAuthProvider(provider.id);
+          } catch (error) {
+            console.log('\n  ' + c.yellow + 'Could not safely replace the existing OAuth session: ' + error.message + c.reset + '\n');
+            continue;
+          }
+        }
+
         try {
           addProvider({
             id: provider.id,

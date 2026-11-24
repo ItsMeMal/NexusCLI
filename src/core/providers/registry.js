@@ -267,7 +267,7 @@ export function getProviderPickerCatalog(activeModel = '') {
       detail: merged.baseUrl
     };
   }).sort((a, b) => {
-    const order = { Popular: 0, Services: 1, Custom: 2, Environment: 3 };
+    const order = { Popular: 0, 'AI Gateways': 1, Services: 2, Custom: 3, Environment: 4 };
     return (order[a.category] ?? 9) - (order[b.category] ?? 9) || a.label.localeCompare(b.label);
   });
 }
