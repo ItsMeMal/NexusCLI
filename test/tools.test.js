@@ -155,7 +155,7 @@ describe('Individual Tools', () => {
   });
 
   test('grep tool finds matching lines', async () => {
-    const res = await grepTool.execute({ pattern: 'Nexus Orchestrator', path: 'src/cli.js' });
+    const res = await grepTool.execute({ pattern: 'NEXUSCODE', path: 'src/cli.js' });
     assert.match(res, /src\/cli\.js:\d+:/);
   });
 });

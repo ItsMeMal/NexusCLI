@@ -1,4 +1,4 @@
-# NexusCLI — AI Orchestrator
+# NEXUSCODE
 
 AI orchestrator berbasis terminal yang mengoordinasikan model, tools, MCP servers, plugins, dan specialist agents untuk menyelesaikan pekerjaan lintas domain.
 

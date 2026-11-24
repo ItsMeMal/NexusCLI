@@ -156,7 +156,7 @@ export function renderBanner({ sessionId, mode, model, serverUrl, gitBranch = 'c
     ? `${c.bgYellow}${c.black}${c.bold} PLAN ${c.reset}`
     : `${c.bgGreen}${c.black}${c.bold} BUILD ${c.reset}`;
 
-  const topBrand = `${c.bold}${c.brightWhite}✦ NEXUS ORCHESTRATOR${c.reset} ${c.dim}v0.1.0${c.reset}`;
+  const topBrand = `${c.bold}${c.brightWhite}✦ NEXUSCODE${c.reset} ${c.dim}v0.1.0${c.reset}`;
   const topStatus = `${c.green}● ONLINE${c.reset} ${modeBadge}`;
   const row1Gap = Math.max(1, innerWidth - stripAnsi(topBrand).length - stripAnsi(topStatus).length);
 

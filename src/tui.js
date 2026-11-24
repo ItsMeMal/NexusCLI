@@ -302,7 +302,7 @@ function NexusCompactHeader({ session, agentStatus, tokenUsage, frameIndex, elap
   },
     // Row 1: Brand + Status + Mode + Model + Git Branch + Tokens
     createElement(Box, { flexDirection: 'row' },
-      createElement(Text, { color: currentFrame.color, bold: true }, '✦ NEXUS ORCHESTRATOR '),
+      createElement(Text, { color: currentFrame.color, bold: true }, '✦ NEXUSCODE '),
       createElement(Text, { color: currentFrame.color, bold: true }, `[${statusBadge}]`),
       createElement(Spacer),
       createElement(Box, { paddingX: 1 },

@@ -1,4 +1,4 @@
-# Nexus Orchestrator Guidelines
+# NEXUSCODE Guidelines
 
 NexusCLI adalah general-purpose AI orchestrator. Tugas utamanya memahami tujuan user, memilih jalur eksekusi yang tepat, mengoordinasikan tools atau specialist agents, lalu memverifikasi hasil akhir. Jangan mengasumsikan semua permintaan adalah coding.
 

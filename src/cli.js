@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * Nexus Orchestrator CLI
+ * NEXUSCODE CLI
  * Main entry point for interactive terminal and non-interactive CI execution.
  */
 
