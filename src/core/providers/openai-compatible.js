@@ -1,5 +1,3 @@
-import { chat } from '../llm.js';
-
 export class OpenAICompatibleProvider {
   constructor(config = {}) {
     this.baseUrl = String(config.baseUrl || '').replace(/\/+$/, '');
@@ -101,12 +99,6 @@ export class OpenAICompatibleProvider {
           if (chunk.function?.name) current.name += chunk.function.name;
           if (chunk.function?.arguments) current.arguments += chunk.function.arguments;
           toolCalls.set(index, current);
-          options.onToolStart?.({
-            index,
-            id: current.id || undefined,
-            name: current.name || 'unknown',
-            args: chunk.function?.arguments || ''
-          });
         }
       }
     }

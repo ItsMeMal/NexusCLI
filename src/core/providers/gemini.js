@@ -1,5 +1,3 @@
-import { chat } from '../llm.js';
-
 /**
  * Gemini provider abstraction.
  * Gemini API (Google Generative AI) menggunakan format pesan dan tool calling yang berbeda.

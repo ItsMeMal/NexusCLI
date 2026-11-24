@@ -6,6 +6,7 @@ import { buildSystemPrompt } from './core/prompt.js';
 import { SessionManager } from './core/session.js';
 import { SessionSnapshotManager } from './core/snapshot.js';
 import { loadEnv } from './core/config.js';
+import { getDefaultModelSelection } from './core/providers/index.js';
 import { estimateMessagesTokens, compactContextIfNeeded } from './core/context.js';
 
 export function createNexusServer(options = {}) {
@@ -109,7 +110,7 @@ export function createNexusServer(options = {}) {
       if (req.method === 'POST' && pathname === '/session') {
         const body = await readJsonBody(req);
         const mode = body.mode || 'build';
-        const model = body.model || process.env.MODEL || '';
+        const model = body.model || getDefaultModelSelection() || process.env.MODEL || '';
 
         const session = sessionManager.createSession({
           mode,

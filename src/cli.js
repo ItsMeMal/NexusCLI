@@ -25,7 +25,7 @@ import {
   renderSecurityPrompt
 } from './core/ui.js';
 import { promptWithAutocomplete, promptSelect, COMMANDS_REGISTRY } from './core/prompt_input.js';
-import { addProvider, getProviderCatalog, listAllModels, listProviderModels, removeProvider } from './core/providers/index.js';
+import { addProvider, getDefaultModelSelection, getProviderCatalog, listAllModels, listProviderModels, removeProvider } from './core/providers/index.js';
 
 function loadEnv() {
   const envPath = path.resolve(process.cwd(), '.env');
@@ -285,7 +285,7 @@ async function runNonInteractive(parsed) {
   }
 
   const client = new NexusClient({ serverUrl, token });
-  const model = parsed.model || process.env.MODEL || '';
+  const model = parsed.model || getDefaultModelSelection() || process.env.MODEL || '';
   await client.createSession({ mode: parsed.mode, model });
 
   const result = {
@@ -376,7 +376,7 @@ async function runInteractive(parsed) {
   }
 
   const client = new NexusClient({ serverUrl, token });
-  const initialModel = parsed.model || process.env.MODEL || '';
+  const initialModel = parsed.model || getDefaultModelSelection() || process.env.MODEL || '';
   const initialMode = parsed.mode || 'build';
 
   await client.createSession({ mode: initialMode, model: initialModel });

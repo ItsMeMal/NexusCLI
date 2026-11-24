@@ -232,24 +232,38 @@ export async function listProviderModels(providerId) {
   const provider = getProviderConfig(providerId);
   if (!provider) throw new Error('Provider not found: ' + providerId);
   if (!provider.apiKey) throw new Error('Missing ' + (provider.apiKeyEnv || 'API key') + ' for ' + provider.label + '.');
-  if (provider.protocol !== 'openai-compatible') {
-    const models = provider.models.length ? provider.models : (provider.defaultModel ? [provider.defaultModel] : []);
-    return models.map(id => ({ id: provider.id + '/' + id, model: id, providerId: provider.id, providerLabel: provider.label }));
+  let response;
+  if (provider.protocol === 'anthropic') {
+    response = await fetch(provider.baseUrl.replace(/\/+$/, '') + '/v1/models', {
+      headers: { 'x-api-key': provider.apiKey, 'anthropic-version': '2023-06-01', Accept: 'application/json' }
+    });
+  } else if (provider.protocol === 'gemini') {
+    response = await fetch(provider.baseUrl.replace(/\/+$/, '') + '/v1beta/models?key=' + encodeURIComponent(provider.apiKey), {
+      headers: { Accept: 'application/json' }
+    });
+  } else {
+    response = await fetch(provider.baseUrl.replace(/\/+$/, '') + '/models', {
+      method: 'GET',
+      headers: { Authorization: 'Bearer ' + provider.apiKey, Accept: 'application/json' }
+    });
   }
-
-  const response = await fetch(provider.baseUrl + '/models', {
-    method: 'GET',
-    headers: { Authorization: 'Bearer ' + provider.apiKey, Accept: 'application/json' }
-  });
   if (!response.ok) {
     const detail = await response.text().catch(() => '');
     throw new Error(provider.label + ' returned HTTP ' + response.status + (detail ? ': ' + detail.slice(0, 240) : ''));
   }
   const payload = await response.json();
-  const rawModels = Array.isArray(payload?.data) ? payload.data
+  let rawModels = Array.isArray(payload?.data) ? payload.data
     : (Array.isArray(payload?.models) ? payload.models : []);
-  const models = rawModels.map(item => typeof item === 'string' ? item : (item?.id || item?.name))
-    .filter(value => typeof value === 'string' && value.trim());
+  if (provider.protocol === 'gemini') {
+    rawModels = rawModels.filter(item =>
+      !Array.isArray(item?.supportedGenerationMethods) ||
+      item.supportedGenerationMethods.includes('generateContent')
+    );
+  }
+  const models = rawModels.map(item => {
+    const value = typeof item === 'string' ? item : (item?.id || item?.name);
+    return typeof value === 'string' ? value.replace(/^models\//, '') : value;
+  }).filter(value => typeof value === 'string' && value.trim());
   const uniqueModels = [...new Set(models)];
   const finalModels = uniqueModels.length ? uniqueModels : provider.models;
   return finalModels.map(id => ({

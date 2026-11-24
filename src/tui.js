@@ -11,7 +11,7 @@ import { getModelConfig } from './core/context.js';
 import { isDockerAvailable } from './core/sandbox.js';
 import { defaultRegistry } from './tools/index.js';
 import { COMMANDS_REGISTRY } from './core/prompt_input.js';
-import { addProvider, getProviderCatalog, listAllModels, listProviderModels, removeProvider } from './core/providers/index.js';
+import { addProvider, getDefaultModelSelection, getProviderCatalog, listAllModels, listProviderModels, removeProvider } from './core/providers/index.js';
 
 const createElement = React.createElement;
 
@@ -1324,7 +1324,7 @@ async function startTUI() {
   }
 
   const client = new TUIClient({ serverUrl, token });
-  const initialModel = process.env.MODEL || '';
+  const initialModel = getDefaultModelSelection() || process.env.MODEL || '';
   const initialMode = 'build';
 
   await client.createSession({ mode: initialMode, model: initialModel });
