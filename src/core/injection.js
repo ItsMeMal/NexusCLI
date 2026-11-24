@@ -1,4 +1,4 @@
-const UNTRUSTED_TOOLS = new Set(['read_file', 'webfetch']);
+const UNTRUSTED_TOOLS = new Set(['read_file', 'webfetch', 'grep', 'task']);
 
 export function isUntrustedTool(toolName, registry) {
   if (UNTRUSTED_TOOLS.has(toolName)) return true;
