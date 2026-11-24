@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { render, Box, Text, Spacer, Newline, useInput, useApp, useStdin, useWindowSize } from 'ink';
+import { render, Box, Text, Spacer, useInput, useApp, useStdin, useWindowSize } from 'ink';
 import readline from 'node:readline';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -17,28 +17,29 @@ const createElement = React.createElement;
 loadEnv();
 
 const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+const PAGE_SIZE = 6;
 
 const ALL_COMMANDS = [
-  { cmd: '/help', desc: 'Buka menu panduan & daftar perintah lengkap', cat: 'Bantuan' },
-  { cmd: '/plan', desc: 'Beralih ke mode read-only (blokir mutasi file)', cat: 'Mode' },
-  { cmd: '/build', desc: 'Beralih ke mode build (eksekusi penuh: write, edit, bash)', cat: 'Mode' },
-  { cmd: '/model', desc: 'Lihat atau ganti model LLM aktif (/model <nama>)', cat: 'Model' },
-  { cmd: '/cost', desc: 'Laporan rincian token usage dan estimasi biaya USD', cat: 'Model' },
-  { cmd: '/compact', desc: 'Pangkas riwayat percakapan untuk menghemat token', cat: 'Model' },
-  { cmd: '/diff', desc: 'Lihat git diff perubahan workspace saat ini', cat: 'Git' },
-  { cmd: '/undo', desc: 'Kembalikan workspace ke checkpoint sebelumnya', cat: 'Git' },
-  { cmd: '/redo', desc: 'Majukan workspace ke checkpoint berikutnya', cat: 'Git' },
-  { cmd: '/checkpoints', desc: 'Lihat daftar seluruh checkpoint git sesi ini', cat: 'Git' },
-  { cmd: '/checkpoint', desc: 'Buat checkpoint git manual (/checkpoint [nama])', cat: 'Git' },
-  { cmd: '/export', desc: 'Ekspor sesi ke file HTML mandiri (/export [nama])', cat: 'Sesi' },
-  { cmd: '/sessions', desc: 'Lihat daftar seluruh sesi yang tersimpan', cat: 'Sesi' },
-  { cmd: '/resume', desc: 'Lanjutkan sesi tersimpan (/resume <id>)', cat: 'Sesi' },
-  { cmd: '/new', desc: 'Mulai sesi percakapan baru yang bersih', cat: 'Sesi' },
-  { cmd: '/doctor', desc: 'Cek kesehatan environment (Node, Git, Docker, Tools)', cat: 'Sistem' },
-  { cmd: '/init', desc: 'Inisialisasi folder .agent/ dan agent.config.json', cat: 'Sistem' },
-  { cmd: '/abort', desc: 'Hentikan proses agen aktif yang sedang berjalan', cat: 'Sistem' },
-  { cmd: '/clear', desc: 'Bersihkan riwayat percakapan di layar', cat: 'Tampilan' },
-  { cmd: 'exit', desc: 'Keluar dari aplikasi', cat: 'Sistem' }
+  { cmd: '/plan', desc: 'Beralih ke mode read-only (blokir write/edit file)', cat: 'Mode', needsArg: false },
+  { cmd: '/build', desc: 'Beralih ke mode build (eksekusi penuh: write, edit, bash)', cat: 'Mode', needsArg: false },
+  { cmd: '/diff', desc: 'Lihat git diff perubahan workspace saat ini', cat: 'Git', needsArg: false },
+  { cmd: '/undo', desc: 'Kembalikan workspace ke checkpoint sebelumnya', cat: 'Git', needsArg: false },
+  { cmd: '/redo', desc: 'Majukan workspace ke checkpoint berikutnya', cat: 'Git', needsArg: false },
+  { cmd: '/checkpoints', desc: 'Daftar seluruh checkpoint git sesi ini', cat: 'Git', needsArg: false },
+  { cmd: '/checkpoint', desc: 'Buat checkpoint git manual (/checkpoint [nama])', cat: 'Git', needsArg: true },
+  { cmd: '/model', desc: 'Lihat atau ganti model LLM aktif (/model <nama>)', cat: 'Model', needsArg: true },
+  { cmd: '/cost', desc: 'Laporan konsumsi token dan estimasi biaya USD', cat: 'Model', needsArg: false },
+  { cmd: '/compact', desc: 'Pangkas riwayat percakapan untuk menghemat token', cat: 'Model', needsArg: false },
+  { cmd: '/doctor', desc: 'Diagnostik env (Node, Git, Docker, API, Tools)', cat: 'Sistem', needsArg: false },
+  { cmd: '/init', desc: 'Inisialisasi folder .agent/ dan agent.config.json', cat: 'Sistem', needsArg: false },
+  { cmd: '/sessions', desc: 'Daftar seluruh sesi tersimpan dan jumlah token', cat: 'Sesi', needsArg: false },
+  { cmd: '/resume', desc: 'Lanjutkan sesi tersimpan (/resume <id>)', cat: 'Sesi', needsArg: true },
+  { cmd: '/new', desc: 'Mulai sesi percakapan baru yang bersih', cat: 'Sesi', needsArg: false },
+  { cmd: '/export', desc: 'Ekspor sesi ke file HTML mandiri (/export [nama])', cat: 'Sesi', needsArg: true },
+  { cmd: '/abort', desc: 'Hentikan proses aktif yang sedang berjalan', cat: 'Sistem', needsArg: false },
+  { cmd: '/clear', desc: 'Bersihkan riwayat percakapan di layar', cat: 'Tampilan', needsArg: false },
+  { cmd: '/help', desc: 'Buka menu panduan & daftar perintah lengkap', cat: 'Bantuan', needsArg: false },
+  { cmd: 'exit', desc: 'Keluar dari aplikasi', cat: 'Sistem', needsArg: false }
 ];
 
 const MASCOT_FRAMES = {
@@ -267,16 +268,16 @@ class TUIClient {
   }
 }
 
-// ─── Mascot & Hero Component ──────────────────────────────────────────────────
+// ─── Compact Mascot & Header Component ────────────────────────────────────────
 
-function ElainaMascotHero({ session, agentStatus, tokenUsage, frameIndex, elapsedSeconds }) {
+function ElainaCompactHeader({ session, agentStatus, tokenUsage, frameIndex, elapsedSeconds, gitBranch }) {
   const mode = session?.mode || 'build';
   const model = session?.model || 'Elaina-Free';
   const stateKey = MASCOT_FRAMES[agentStatus.state] ? agentStatus.state : 'idle';
   const frames = MASCOT_FRAMES[stateKey];
   const currentFrame = frames[frameIndex % frames.length];
 
-  const stepInfo = agentStatus.step ? ` Step ${agentStatus.step}/25` : '';
+  const stepInfo = agentStatus.step ? ` [Step ${agentStatus.step}/25]` : '';
   const timeInfo = elapsedSeconds > 0 ? ` (${elapsedSeconds}s)` : '';
   const spinnerChar = SPINNER_FRAMES[frameIndex % SPINNER_FRAMES.length];
 
@@ -288,42 +289,38 @@ function ElainaMascotHero({ session, agentStatus, tokenUsage, frameIndex, elapse
   if (agentStatus.state === 'error') statusBadge = '✕ ERROR';
 
   const dialogue = agentStatus.text || currentFrame.quote;
-  const rawId = session?.id || '';
-  const shortId = rawId ? (rawId.length > 20 ? rawId.slice(0, 18) + '…' : rawId) : 'none';
+  const mascotAvatar = currentFrame.face[1].trim() + (currentFrame.face[2].includes('✨') ? '✨' : '🪄');
 
   return createElement(Box, {
-    flexDirection: 'row',
+    flexDirection: 'column',
     borderStyle: 'round',
     borderColor: currentFrame.color,
     paddingX: 1,
+    paddingY: 0,
     marginY: 0
   },
-    // Left: Animated Mascot ASCII
-    createElement(Box, { flexDirection: 'column', marginRight: 2 },
-      createElement(Text, { color: currentFrame.color, bold: true }, currentFrame.face[0]),
-      createElement(Text, { color: 'white' }, currentFrame.face[1]),
-      createElement(Text, { color: currentFrame.color }, currentFrame.face[2])
-    ),
-    // Right: Status + Dialogue + Session Info
-    createElement(Box, { flexDirection: 'column', flexGrow: 1 },
-      createElement(Box, { flexDirection: 'row' },
-        createElement(Text, { color: currentFrame.color, bold: true }, '✦ ELAINA • NEXUS AI '),
-        createElement(Text, { color: currentFrame.color, bold: true }, `[${statusBadge}]`),
-        createElement(Spacer),
-        createElement(Box, { paddingX: 1 },
-          createElement(Text, {
-            color: 'black',
-            backgroundColor: mode === 'plan' ? 'yellow' : 'green',
-            bold: true
-          }, ` ${mode.toUpperCase()} `)
-        ),
-        createElement(Text, { color: 'magenta', bold: true }, `[${model}]`),
-        createElement(Text, { color: 'gray' }, ` ${(tokenUsage || 0).toLocaleString()} tok`)
+    // Row 1: Brand + Status + Mode + Model + Git Branch + Tokens
+    createElement(Box, { flexDirection: 'row' },
+      createElement(Text, { color: currentFrame.color, bold: true }, '✦ ELAINA • NEXUS AGENT '),
+      createElement(Text, { color: currentFrame.color, bold: true }, `[${statusBadge}]`),
+      createElement(Spacer),
+      createElement(Box, { paddingX: 1 },
+        createElement(Text, {
+          color: 'black',
+          backgroundColor: mode === 'plan' ? 'yellow' : 'green',
+          bold: true
+        }, ` ${mode.toUpperCase()} `)
       ),
+      createElement(Text, { color: 'cyan', bold: true }, `[${model}] `),
+      gitBranch ? createElement(Text, { color: 'gray' }, `git:${gitBranch} │ `) : null,
+      createElement(Text, { color: 'gray' }, `${(tokenUsage || 0).toLocaleString()} tok`)
+    ),
+    // Row 2: Mascot dialogue + Quick hint
+    createElement(Box, { flexDirection: 'row' },
+      createElement(Text, { color: currentFrame.color, bold: true }, `${mascotAvatar} `),
       createElement(Text, { color: 'white' }, `"${dialogue}"`),
-      createElement(Text, { color: 'gray', dimColor: true },
-        `Session: ${shortId} │ Ketik / untuk command palette │ Tab autocomplete`
-      )
+      createElement(Spacer),
+      createElement(Text, { color: 'gray', dimColor: true }, 'Ketik / untuk command palette')
     )
   );
 }
@@ -354,7 +351,8 @@ function MessagesArea({ messages, activeStream, maxRows }) {
     paddingX: 1,
     paddingY: 0,
     marginY: 0,
-    minHeight: 4
+    minHeight: 4,
+    flexGrow: 1
   },
     recentMessages.length === 0 && !activeStream
       ? createElement(Box, { paddingY: 0 },
@@ -390,11 +388,11 @@ function MessagesArea({ messages, activeStream, maxRows }) {
         );
       }
       if (msg.role === 'tool_result') {
-        const preview = (msg.output || '').length > 100
-          ? (msg.output || '').slice(0, 100).replace(/\r?\n/g, ' ') + '…'
+        const preview = (msg.output || '').length > 120
+          ? (msg.output || '').slice(0, 120).replace(/\r?\n/g, ' ') + '…'
           : (msg.output || '').replace(/\r?\n/g, ' ');
         return createElement(Box, { key: idx, paddingLeft: 2, marginY: 0 },
-          createElement(Text, { color: 'green', dimColor: true }, `└─ Result: ${preview}`)
+          createElement(Text, { color: 'green', dimColor: true }, `└─ Result: ${preview || '(empty)'}`)
         );
       }
       return null;
@@ -408,34 +406,75 @@ function MessagesArea({ messages, activeStream, maxRows }) {
   );
 }
 
-// ─── Interactive Command Autocomplete Palette ─────────────────────────────────
+// ─── Interactive Command Autocomplete Palette (Sliding Window Scrollable) ────
 
-function CommandPalette({ commands, selectedIndex }) {
+function CommandPalette({ commands, selectedIndex, scrollOffset, pageSize }) {
   if (!commands || commands.length === 0) return null;
-  const displayList = commands.slice(0, 6);
+
+  const visible = commands.slice(scrollOffset, scrollOffset + pageSize);
+  const hasAbove = scrollOffset > 0;
+  const hasBelow = scrollOffset + pageSize < commands.length;
+  const aboveCount = scrollOffset;
+  const belowCount = commands.length - (scrollOffset + pageSize);
+
+  const catColors = {
+    'Mode': 'yellow',
+    'Git': 'green',
+    'Model': 'magenta',
+    'Sesi': 'blue',
+    'Sistem': 'red',
+    'Bantuan': 'cyan',
+    'Tampilan': 'gray'
+  };
 
   return createElement(Box, {
     flexDirection: 'column',
     borderStyle: 'round',
-    borderColor: 'magenta',
+    borderColor: 'cyan',
     paddingX: 1,
     marginY: 0
   },
+    // Header with live counter and controls
     createElement(Box, { flexDirection: 'row', marginBottom: 0 },
-      createElement(Text, { color: 'magenta', bold: true }, '✦ COMMAND PALETTE '),
-      createElement(Text, { color: 'gray' }, '(Tekan [Tab] untuk auto-complete, [↑/↓] navigasi, [Enter] jalankan):')
+      createElement(Text, { color: 'cyan', bold: true }, '✦ COMMAND PALETTE '),
+      createElement(Text, { color: 'white', bold: true }, `[${selectedIndex + 1}/${commands.length}] `),
+      createElement(Spacer),
+      createElement(Text, { color: 'gray', dimColor: true }, '↑/↓ Navigasi │ Tab Lengkapi │ Enter Pilih │ Esc Tutup')
     ),
-    ...displayList.map((c, idx) => {
-      const isSelected = idx === selectedIndex;
-      return createElement(Box, { key: c.cmd, flexDirection: 'row' },
+
+    // Scroll up indicator
+    hasAbove
+      ? createElement(Box, { marginY: 0 },
+          createElement(Text, { color: 'yellow', dimColor: true }, `  ▲ ... (${aboveCount} perintah lagi di atas)`)
+        )
+      : null,
+
+    // Active visible window items
+    ...visible.map((item, relIdx) => {
+      const absIdx = scrollOffset + relIdx;
+      const isSelected = absIdx === selectedIndex;
+      const catColor = catColors[item.cat] || 'gray';
+
+      return createElement(Box, { key: item.cmd, flexDirection: 'row' },
         createElement(Text, {
-          color: isSelected ? 'cyan' : 'white',
-          bold: isSelected,
-          backgroundColor: isSelected ? 'gray' : undefined
-        }, `${isSelected ? '❯ ' : '  '}${c.cmd.padEnd(14, ' ')}`),
-        createElement(Text, { color: isSelected ? 'white' : 'gray' }, ` ${c.desc}`)
+          color: isSelected ? 'black' : 'cyan',
+          backgroundColor: isSelected ? 'cyan' : undefined,
+          bold: isSelected
+        }, `${isSelected ? '❯ ' : '  '}${item.cmd.padEnd(14, ' ')}`),
+        createElement(Text, { color: catColor }, ` [${item.cat}] `),
+        createElement(Text, {
+          color: isSelected ? 'white' : 'gray',
+          bold: isSelected
+        }, item.desc)
       );
-    })
+    }),
+
+    // Scroll down indicator
+    hasBelow
+      ? createElement(Box, { marginY: 0 },
+          createElement(Text, { color: 'yellow', dimColor: true }, `  ▼ ... (${belowCount} perintah lagi di bawah)`)
+        )
+      : null
   );
 }
 
@@ -473,7 +512,9 @@ function NexusTUIApp({ client, snapshotManager }) {
   const [activeStream, setActiveStream] = useState('');
   const [input, setInput] = useState('');
   const [selectedCmdIndex, setSelectedCmdIndex] = useState(0);
+  const [scrollOffset, setScrollOffset] = useState(0);
   const [tokenUsage, setTokenUsage] = useState(0);
+  const [gitBranch, setGitBranch] = useState('');
   const [pendingPermission, setPendingPermission] = useState(null);
   const [agentStatus, setAgentStatus] = useState({ state: 'idle', text: '' });
   const [spinnerFrame, setSpinnerFrame] = useState(0);
@@ -481,19 +522,25 @@ function NexusTUIApp({ client, snapshotManager }) {
 
   const isBusy = agentStatus.state === 'thinking' || agentStatus.state === 'tool' || agentStatus.state === 'permission';
 
+  // Read git branch on mount
+  useEffect(() => {
+    snapshotManager.getCurrentBranch().then(b => setGitBranch(b || '')).catch(() => {});
+  }, []);
+
   // Filter command suggestions based on current input
   const isSlashActive = input.startsWith('/');
   const filteredCommands = isSlashActive
     ? ALL_COMMANDS.filter(c => c.cmd.toLowerCase().startsWith(input.trim().toLowerCase().split(' ')[0]))
     : [];
 
-  // Reset selected command index if list shrinks
+  // Reset scroll and selection index if query changes
   useEffect(() => {
     setSelectedCmdIndex(0);
+    setScrollOffset(0);
   }, [input]);
 
   // Dynamic max message rows based on terminal height
-  const maxMessageRows = Math.max(2, Math.min(8, (rows || 24) - (isSlashActive ? 18 : 14)));
+  const maxMessageRows = Math.max(3, Math.min(20, (rows || 28) - (isSlashActive ? 15 : 8)));
 
   // Mascot & Animation effect
   useEffect(() => {
@@ -523,31 +570,7 @@ function NexusTUIApp({ client, snapshotManager }) {
 
     // /help or just /
     if (trimmed === '/help' || trimmed === '/') {
-      const helpText = `DAFTAR PERINTAH LENGKAP:
-• Mode:
-  /plan           - Beralih ke mode read-only (blokir mutasi file)
-  /build          - Beralih ke mode build (eksekusi penuh: write, bash)
-• Model & Konteks:
-  /model [nama]   - Lihat atau ganti model LLM aktif
-  /cost, /usage   - Laporan konsumsi token dan estimasi biaya USD
-  /compact        - Pangkas riwayat percakapan untuk hemat token
-• Git & Checkpoint:
-  /diff           - Lihat git diff perubahan workspace saat ini
-  /undo           - Kembalikan workspace ke checkpoint sebelumnya
-  /redo           - Majukan workspace ke checkpoint berikutnya
-  /checkpoints    - Lihat daftar seluruh checkpoint git sesi ini
-  /checkpoint [l] - Buat checkpoint git manual bernama
-• Sesi:
-  /export [path]  - Ekspor percakapan ke file HTML mandiri
-  /sessions       - Lihat daftar seluruh sesi yang tersimpan
-  /resume <id>    - Lanjutkan sesi tersimpan
-  /new            - Mulai sesi baru yang bersih
-• Sistem:
-  /doctor         - Cek kesehatan environment (Node, Git, Docker, Tools)
-  /init           - Inisialisasi folder .agent/ dan agent.config.json
-  /abort          - Batalkan proses aktif yang sedang berjalan
-  /clear          - Bersihkan riwayat chat di layar
-  exit / quit     - Keluar dari aplikasi`;
+      const helpText = `DAFTAR PERINTAH LENGKAP:\n• Mode:\n  /plan           - Beralih ke mode read-only (blokir mutasi file)\n  /build          - Beralih ke mode build (eksekusi penuh: write, bash)\n• Model & Konteks:\n  /model [nama]   - Lihat atau ganti model LLM aktif\n  /cost, /usage   - Laporan konsumsi token dan estimasi biaya USD\n  /compact        - Pangkas riwayat percakapan untuk hemat token\n• Git & Checkpoint:\n  /diff           - Lihat git diff perubahan workspace saat ini\n  /undo           - Kembalikan workspace ke checkpoint sebelumnya\n  /redo           - Majukan workspace ke checkpoint berikutnya\n  /checkpoints    - Lihat daftar seluruh checkpoint git sesi ini\n  /checkpoint [l] - Buat checkpoint git manual bernama\n• Sesi:\n  /export [path]  - Ekspor percakapan ke file HTML mandiri\n  /sessions       - Lihat daftar seluruh sesi yang tersimpan\n  /resume <id>    - Lanjutkan sesi tersimpan\n  /new            - Mulai sesi baru yang bersih\n• Sistem:\n  /doctor         - Cek kesehatan environment (Node, Git, Docker, Tools)\n  /init           - Inisialisasi folder .agent/ dan agent.config.json\n  /abort          - Batalkan proses aktif yang sedang berjalan\n  /clear          - Bersihkan riwayat chat di layar\n  exit / quit     - Keluar dari aplikasi`;
 
       setMessages(prev => [
         ...prev,
@@ -608,12 +631,7 @@ function NexusTUIApp({ client, snapshotManager }) {
         const outCost = ((u.completion_tokens / 1_000_000) * (config.outputPrice || 0)).toFixed(4);
         const totalCost = (parseFloat(inCost) + parseFloat(outCost)).toFixed(4);
 
-        const report = `📊 LAPORAN KONSUMSI TOKEN & BIAYA:
-Model: ${config.name || session.model}
-• Prompt Tokens: ${(u.prompt_tokens || 0).toLocaleString()} (rate: $${config.inputPrice || 0}/1M)
-• Comp Tokens:   ${(u.completion_tokens || 0).toLocaleString()} (rate: $${config.outputPrice || 0}/1M)
-• Total Tokens:  ${(u.total_tokens || 0).toLocaleString()}
-• Estimasi Biaya: $${totalCost} USD`;
+        const report = `📊 LAPORAN KONSUMSI TOKEN & BIAYA:\nModel: ${config.name || session.model}\n• Prompt Tokens: ${(u.prompt_tokens || 0).toLocaleString()} (rate: $${config.inputPrice || 0}/1M)\n• Comp Tokens:   ${(u.completion_tokens || 0).toLocaleString()} (rate: $${config.outputPrice || 0}/1M)\n• Total Tokens:  ${(u.total_tokens || 0).toLocaleString()}\n• Estimasi Biaya: $${totalCost} USD`;
 
         setMessages(prev => [
           ...prev,
@@ -658,12 +676,12 @@ Model: ${config.name || session.model}
       } else if (!diffRes.diff && !diffRes.status) {
         setMessages(prev => [...prev, { role: 'user', content: trimmed }, { role: 'assistant', content: '✔ Working directory bersih. Tidak ada perubahan yang belum di-commit.' }]);
       } else {
-        const header = `WORKSPACE DIFF (vs ${diffRes.compareRef}):\nStatus: ${diffRes.status || 'modified'}\n`;
-        const diffBody = diffRes.diff ? diffRes.diff.slice(0, 1000) : '';
+        const header = `WORKSPACE DIFF (vs ${diffRes.compareRef}):\nStatus:\n${diffRes.status || 'Clean'}\n`;
+        const diffBody = diffRes.diff ? diffRes.diff.slice(0, 1500) : '';
         setMessages(prev => [
           ...prev,
           { role: 'user', content: trimmed },
-          { role: 'assistant', content: header + (diffBody.length === 1000 ? diffBody + '\n... (dipangkas)' : diffBody) }
+          { role: 'assistant', content: header + (diffBody.length === 1500 ? diffBody + '\n... (dipangkas)' : diffBody) }
         ]);
       }
       return;
@@ -742,14 +760,7 @@ Model: ${config.name || session.model}
         if (fs.existsSync(d)) subagents = fs.readdirSync(d).filter(f => f.endsWith('.md')).length;
       } catch {}
 
-      const report = `🏥 HASIL DIAGNOSTIK NEXUS:
-• Node.js:        ${process.version} (>=20.0.0 required)
-• Git Repo:       ${isGit ? 'Terdeteksi' : 'Bukan repo git'}
-• Docker Sandbox: ${hasDocker ? 'Aktif' : 'Tidak terdeteksi (fallback ke exec lokal)'}
-• Model Aktif:    ${session.model || 'default'}
-• API Key:        ${hasKey ? 'Terkonfigurasi di environment' : 'Belum diatur di .env'}
-• Registered Tools: ${defaultRegistry.list().length} tools
-• Custom Agents:  ${subagents} subagent`;
+      const report = `🏥 HASIL DIAGNOSTIK NEXUS:\n• Node.js:        ${process.version} (>=20.0.0 required)\n• Git Repo:       ${isGit ? 'Terdeteksi' : 'Bukan repo git'}\n• Docker Sandbox: ${hasDocker ? 'Aktif' : 'Tidak terdeteksi (fallback ke exec lokal)'}\n• Model Aktif:    ${session.model || 'default'}\n• API Key:        ${hasKey ? 'Terkonfigurasi di environment' : 'Belum diatur di .env'}\n• Registered Tools: ${defaultRegistry.list().length} tools\n• Custom Agents:  ${subagents} subagent`;
 
       setMessages(prev => [
         ...prev,
@@ -942,20 +953,60 @@ Model: ${config.name || session.model}
 
     // Interactive command palette navigation when typing /
     if (isSlashActive && filteredCommands.length > 0) {
+      // Escape: dismiss palette
+      if (key.escape) {
+        setInput('');
+        return;
+      }
+
+      // Up Arrow
       if (key.upArrow) {
-        setSelectedCmdIndex(prev => (prev > 0 ? prev - 1 : filteredCommands.length - 1));
+        const prevIdx = selectedCmdIndex > 0 ? selectedCmdIndex - 1 : filteredCommands.length - 1;
+        setSelectedCmdIndex(prevIdx);
+        if (prevIdx === filteredCommands.length - 1) {
+          // Wrapped to bottom
+          setScrollOffset(Math.max(0, filteredCommands.length - PAGE_SIZE));
+        } else if (prevIdx < scrollOffset) {
+          setScrollOffset(prevIdx);
+        }
         return;
       }
+
+      // Down Arrow
       if (key.downArrow) {
-        setSelectedCmdIndex(prev => (prev < filteredCommands.length - 1 ? prev + 1 : 0));
+        const nextIdx = selectedCmdIndex < filteredCommands.length - 1 ? selectedCmdIndex + 1 : 0;
+        setSelectedCmdIndex(nextIdx);
+        if (nextIdx === 0) {
+          // Wrapped to top
+          setScrollOffset(0);
+        } else if (nextIdx >= scrollOffset + PAGE_SIZE) {
+          setScrollOffset(nextIdx - PAGE_SIZE + 1);
+        }
         return;
       }
+
+      // Tab: autocomplete
       if (key.tab) {
         const chosen = filteredCommands[selectedCmdIndex];
         if (chosen) {
-          setInput(chosen.cmd + ' ');
+          setInput(chosen.cmd + (chosen.needsArg ? ' ' : ''));
         }
         return;
+      }
+
+      // Return / Enter
+      if (key.return) {
+        const chosen = filteredCommands[selectedCmdIndex];
+        if (chosen) {
+          if (!chosen.needsArg) {
+            setInput('');
+            handleExecute(chosen.cmd);
+            return;
+          } else {
+            setInput(chosen.cmd + ' ');
+            return;
+          }
+        }
       }
     }
 
@@ -1002,11 +1053,16 @@ Model: ${config.name || session.model}
   }, [isRawModeSupported]);
 
   return createElement(Box, { flexDirection: 'column', width: '100%' },
-    createElement(ElainaMascotHero, { session, agentStatus, tokenUsage, frameIndex: spinnerFrame, elapsedSeconds }),
+    createElement(ElainaCompactHeader, { session, agentStatus, tokenUsage, frameIndex: spinnerFrame, elapsedSeconds, gitBranch }),
     createElement(PermissionModal, { request: pendingPermission }),
     createElement(MessagesArea, { messages, activeStream, maxRows: maxMessageRows }),
     isSlashActive && filteredCommands.length > 0
-      ? createElement(CommandPalette, { commands: filteredCommands, selectedIndex: selectedCmdIndex })
+      ? createElement(CommandPalette, {
+          commands: filteredCommands,
+          selectedIndex: selectedCmdIndex,
+          scrollOffset,
+          pageSize: PAGE_SIZE
+        })
       : null,
     createElement(InputBox, { input, mode: session?.mode || 'build', isBusy }),
     createElement(FooterBar)
