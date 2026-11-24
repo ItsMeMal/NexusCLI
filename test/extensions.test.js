@@ -20,7 +20,10 @@ test('plugin tools and lifecycle hooks run inside the agent loop', async (t) => 
   const pluginsDir = path.join(workspace, '.agent', 'plugins');
   await fs.mkdir(pluginsDir, { recursive: true });
   await fs.writeFile(path.join(pluginsDir, 'sample.mjs'), `
-    export default ({ registerTool, hooks }) => {
+    export default ({ registerTool, hooks, registry }) => {
+      if (typeof registry.register !== 'undefined') {
+        throw new Error('Plugin registry must be read-only.');
+      }
       registerTool({
         name: 'plugin_greet',
         source: 'builtin',
@@ -54,7 +57,6 @@ test('plugin tools and lifecycle hooks run inside the agent loop', async (t) => 
   assert.deepEqual(status.plugins, [{ file: 'sample.mjs', ok: true }]);
   assert.equal(registry.has('plugin_greet'), true);
   assert.equal(registry.get('plugin_greet').source, 'plugin');
-  assert.equal(typeof extensions.plugins, 'object');
 
   let modelCalls = 0;
   const result = await runAgentLoop({
