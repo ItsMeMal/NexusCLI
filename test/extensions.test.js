@@ -13,6 +13,26 @@ async function makeWorkspace() {
   return fs.mkdtemp(path.join(os.tmpdir(), 'nexuscode-extensions-'));
 }
 
+test('the shipped example plugin uses the supported plugin registration API', async (t) => {
+  const workspace = await makeWorkspace();
+  t.after(() => fs.rm(workspace, { recursive: true, force: true }));
+
+  const pluginsDir = path.join(workspace, '.agent', 'plugins');
+  await fs.mkdir(pluginsDir, { recursive: true });
+  const exampleSource = await fs.readFile(new URL('../.agent/plugins/example.js', import.meta.url), 'utf8');
+  await fs.writeFile(path.join(pluginsDir, 'example.js'), exampleSource);
+
+  const registry = createDefaultRegistry();
+  const extensions = new ExtensionManager(workspace);
+  const status = await extensions.initialize(registry);
+
+  assert.deepEqual(status.plugins, [{ file: 'example.js', ok: true }]);
+  assert.equal(registry.has('plugin_echo'), true);
+  assert.equal(registry.get('plugin_echo').source, 'plugin');
+  assert.equal(await registry.execute('plugin_echo', { message: 'hello' }), '[plugin_echo] hello');
+  await extensions.shutdown();
+});
+
 test('plugin tools and lifecycle hooks run inside the agent loop', async (t) => {
   const workspace = await makeWorkspace();
   t.after(() => fs.rm(workspace, { recursive: true, force: true }));
