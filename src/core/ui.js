@@ -48,6 +48,25 @@ export const c = {
 
 export const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
+
+const NEXUS_MASCOT_POSES = {
+  idle: [{ face: '•ᴗ•', sparkle: '✦' }, { face: '◕ᴗ◕', sparkle: '✧' }],
+  thinking: [{ face: '•̀ᴗ•́', sparkle: '⌁' }, { face: '•ω•', sparkle: '✧' }, { face: '◕ω◕', sparkle: '✦' }],
+  working: [{ face: '•̀_•́', sparkle: '⚙' }, { face: '•̀ᴗ•́', sparkle: '✦' }, { face: '◕ᴗ◕', sparkle: '✧' }],
+  success: [{ face: '^ᴗ^', sparkle: '✓' }, { face: '•ᴗ•', sparkle: '✦' }],
+  error: [{ face: ';ᴗ;', sparkle: '!' }, { face: '×ᴗ×', sparkle: '!' }]
+};
+
+export function getMascotPose(mood = 'idle', frameIndex = 0) {
+  const poses = NEXUS_MASCOT_POSES[mood] || NEXUS_MASCOT_POSES.idle;
+  return poses[Math.abs(Math.floor(Number(frameIndex) || 0)) % poses.length];
+}
+
+export function renderMascot(mood = 'idle', frameIndex = 0) {
+  const pose = getMascotPose(mood, frameIndex);
+  return ['     /\\_/\\', '  ✦ ( ' + pose.face + ' )', '     /づ' + pose.sparkle];
+}
+
 /**
  * Animated terminal spinner with high-res elapsed timer
  */
@@ -58,10 +77,12 @@ export class Spinner {
     this.timer = null;
     this.startTime = Date.now();
     this.active = false;
+    this.mood = 'thinking';
   }
 
-  start(text) {
+  start(text, mood = 'thinking') {
     if (text) this.text = text;
+    this.mood = mood;
     // Clear any previous interval before starting a new one (prevents timer leaks
     // when start() is called twice, e.g. consecutive tool events).
     if (this.timer) {
@@ -76,10 +97,14 @@ export class Spinner {
     process.stdout.write('\x1b[?25l');
 
     this.timer = setInterval(() => {
-      const frame = SPINNER_FRAMES[this.frameIndex % SPINNER_FRAMES.length];
+      const pose = getMascotPose(this.mood, this.frameIndex);
       const elapsed = ((Date.now() - this.startTime) / 1000).toFixed(1);
-      const line = `\r  ${c.cyan}${frame}${c.reset} ${c.bold}${this.text}${c.reset} ${c.dim}(${elapsed}s)${c.reset}`;
-      process.stdout.write(line + '\x1b[K');
+      const columns = Number(process.stdout.columns) || 80;
+      const label = clipTerminalText(this.text, Math.max(12, columns - 28));
+      const faceColor = this.mood === 'error' ? c.rose : this.mood === 'success' ? c.green : c.brand;
+      const mascot = faceColor + '(' + pose.face + ')' + c.reset + ' ' + c.amber + pose.sparkle + c.reset;
+      const line = `\\r  ${mascot}  ${c.bold}${label}${c.reset} ${c.dim}(${elapsed}s)${c.reset}`;
+      process.stdout.write(line + '\\x1b[K');
       this.frameIndex++;
     }, 80);
   }
@@ -107,17 +132,20 @@ export class Spinner {
   succeed(text) {
     this.stop(true);
     const elapsed = ((Date.now() - this.startTime) / 1000).toFixed(1);
-    console.log(`  ${c.green}✔${c.reset} ${text || this.text} ${c.dim}(${elapsed}s)${c.reset}`);
+    const pose = getMascotPose('success');
+    console.log(`  ${c.green}(${pose.face}) ✓${c.reset} ${text || this.text} ${c.dim}(${elapsed}s)${c.reset}`);
   }
 
   fail(text) {
     this.stop(true);
-    console.log(`  ${c.red}✖${c.reset} ${text || this.text}`);
+    const pose = getMascotPose('error');
+    console.log(`  ${c.rose}(${pose.face}) !${c.reset} ${text || this.text}`);
   }
 
   info(text) {
     this.stop(true);
-    console.log(`  ${c.blue}ℹ${c.reset} ${text}`);
+    const pose = getMascotPose('idle');
+    console.log(`  ${c.blue}(${pose.face}) ·${c.reset} ${text}`);
   }
 }
 
@@ -128,34 +156,39 @@ export class Spinner {
 export async function renderStartupAnimation({
   output = process.stdout,
   isTTY = Boolean(output.isTTY),
-  intervalMs = 110,
+  intervalMs = 120,
   sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms))
 } = {}) {
   if (!isTTY || process.env.NEXUS_NO_ANIMATION === '1') return false;
 
   const stages = [
-    { glyph: '◴', label: 'Starting terminal interface', color: c.cyan },
-    { glyph: '◷', label: 'Local session connected', color: c.brand },
-    { glyph: '✓', label: 'Ready', color: c.green }
+    { mood: 'idle', frame: 0, label: 'Waking up your companion' },
+    { mood: 'thinking', frame: 1, label: 'Checking the workspace' },
+    { mood: 'success', frame: 0, label: 'Nexus is ready' }
   ];
 
-  output.write('\x1b[?25l');
+  output.write('\\x1b[?25l');
   try {
-    for (const stage of stages) {
-      output.write(
-        '\r\x1b[K  ' + stage.color + stage.glyph + c.reset +
-        '  ' + c.bold + 'NEXUSCODE' + c.reset +
-        '  ' + c.dim + stage.label + c.reset
-      );
+    for (let index = 0; index < stages.length; index++) {
+      const stage = stages[index];
+      const mascot = renderMascot(stage.mood, stage.frame);
+      const lines = [
+        '  ' + c.brand + c.bold + 'NEXI' + c.reset + '  ' + c.dim + 'YOUR NEXUS COMPANION' + c.reset,
+        '  ' + c.brightWhite + mascot[0] + c.reset + '    ' + c.bold + 'NEXUSCODE' + c.reset,
+        '  ' + c.brand + mascot[1] + c.reset + '    ' + c.dim + stage.label + c.reset,
+        '  ' + c.brand + mascot[2] + c.reset
+      ];
+      if (index === 0) output.write('\\n');
+      else output.write('\\x1b[4A');
+      output.write(lines.map(line => '\\r\\x1b[K' + line).join('\\n'));
       await sleep(intervalMs);
     }
-    output.write('\n');
+    output.write('\\n\\n');
   } finally {
-    output.write('\x1b[?25h');
+    output.write('\\x1b[?25h');
   }
   return true;
 }
-
 /** Show a version alert without interrupting the normal prompt flow. */
 export function renderUpdateNotice(updateInfo) {
   if (!updateInfo?.updateAvailable || !updateInfo.latestVersion) return false;
@@ -236,39 +269,38 @@ function clipTerminalText(value, maxWidth) {
  */
 export function renderBanner({ sessionId, mode, model, gitBranch = 'clean' }) {
   const columns = Number(process.stdout.columns) || 80;
-  const width = Math.max(20, Math.min(92, columns - 4));
+  const width = Math.max(24, Math.min(92, columns - 4));
   const project = path.basename(process.cwd()) || 'workspace';
   const modeLabel = mode === 'plan' ? 'PLAN' : 'BUILD';
   const shortSession = sessionId && sessionId.length > 22
     ? sessionId.slice(0, 18) + '…'
     : (sessionId || 'active');
+  const mascot = renderMascot('idle', 0);
 
-  const statusText = '● ONLINE';
-  const brandText = 'NEXUSCODE  /  v' + APP_VERSION;
-  const topGap = Math.max(2, width - terminalDisplayWidth(brandText) - terminalDisplayWidth(statusText));
+  console.log('');
+  if (width >= 66) {
+    console.log('  ' + c.brand + mascot[0] + c.reset + '     ' + c.bold + c.brand + 'NEXUSCODE' + c.reset + '  ' + c.dim + 'v' + APP_VERSION + c.reset);
+    console.log('  ' + c.brand + mascot[1] + c.reset + '   ' + c.brightWhite + 'A small companion for ambitious work.' + c.reset);
+    console.log('  ' + c.brand + mascot[2] + c.reset + '     ' + c.green + '● ONLINE' + c.reset + '  ' + c.dim + modeLabel + c.reset);
+  } else {
+    console.log('  ' + c.bold + c.brand + 'NEXUSCODE' + c.reset + '  ' + c.dim + 'v' + APP_VERSION + c.reset);
+    for (const line of mascot) console.log('  ' + c.brand + line + c.reset);
+    console.log('  ' + c.green + '● ONLINE' + c.reset + '  ' + c.dim + modeLabel + c.reset);
+  }
 
-  const rule = '  ' + c.muted + '─'.repeat(width) + c.reset;
+  console.log('\\n  ' + c.muted + '─'.repeat(width) + c.reset);
   const row = (label, value) => {
     const key = String(label).toUpperCase().padEnd(10, ' ');
     const content = clipTerminalText(value, width - 13);
     console.log('  ' + c.muted + key + c.reset + ' ' + c.brightWhite + content + c.reset);
   };
-
-  console.log(
-    '\n  ' + c.brand + c.bold + 'NEXUSCODE' + c.reset +
-    '  ' + c.dim + '/  v' + APP_VERSION + c.reset +
-    ' '.repeat(topGap) +
-    c.green + c.bold + statusText + c.reset
-  );
-  console.log(rule);
   row('MODEL', model || 'not selected');
   row('WORKSPACE', project + '  ·  BRANCH ' + (gitBranch || 'clean'));
   row('SESSION', shortSession + '  ·  MODE ' + modeLabel);
-  console.log(rule);
-  console.log('\n  ' + c.brightWhite + c.bold + 'Ready when you are.' + c.reset);
-  console.log('  ' + c.dim + 'Describe a task or type / to browse commands.' + c.reset + '\n');
+  console.log('  ' + c.muted + '─'.repeat(width) + c.reset);
+  console.log('\\n  ' + c.brightWhite + c.bold + 'Ready when you are.' + c.reset);
+  console.log('  ' + c.dim + 'Describe a task or type / to browse commands.' + c.reset + '\\n');
 }
-
 /**
  * Build a compact status rail directly above the interactive prompt.
  */
