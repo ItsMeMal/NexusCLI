@@ -205,6 +205,7 @@ class NexusClient {
     onPermission,
     onInterrupt,
     onAccepted,
+    onModeResolved,
     onDone,
     onError
   } = {}) {
@@ -260,6 +261,8 @@ class NexusClient {
                 await onPermission?.(parsedData);
               } else if (currentEvent === 'interrupt.requested') {
                 onInterrupt?.(parsedData);
+              } else if (currentEvent === 'mode.resolved') {
+                onModeResolved?.(parsedData);
               } else if (currentEvent === 'done') {
                 onDone?.(parsedData);
                 try { await reader.cancel(); } catch {}
@@ -332,6 +335,10 @@ async function runNonInteractive(parsed) {
 
   try {
     await client.sendMessage(parsed.prompt, {
+      onModeResolved: (event) => {
+        result.executionMode = event.executionMode;
+        if (!parsed.json) process.stderr.write(`\n🤖 Auto route: ${String(event.executionMode || 'plan').toUpperCase()} (${event.reason || 'automatic selection'})\n`);
+      },
       onToken: (tok) => {
         result.response += tok;
         if (!parsed.json) {
@@ -489,6 +496,10 @@ async function runInteractive(parsed) {
         },
         onInterrupt: () => {
           if (interruptRequested) spinner.update('Waiting for the active operation to stop…');
+        },
+        onModeResolved: (event) => {
+          const route = String(event.executionMode || 'plan').toUpperCase();
+          spinner.update(`Auto selected ${route} · ${event.reason || 'automatic route'}`, route === 'build' ? 'working' : 'thinking');
         },
         onToken: (tok) => {
           if (interruptRequested) return;
@@ -714,7 +725,14 @@ async function runInteractive(parsed) {
     // Build mode
     if (trimmed === '/build') {
       await client.updateSessionSettings({ mode: 'build' });
-      console.log(`\n  ⚡ ${c.green}${c.bold}Switched to BUILD mode${c.reset} ${c.dim}(full execution). File writes & bash enabled.${c.reset}\n`);
+      console.log(`\n  ⚡ ${c.green}${c.bold}Switched to BUILD mode${c.reset} ${c.dim}(full execution). File writes & bash enabled; permission rules still apply.${c.reset}\n`);
+      continue;
+    }
+
+    // Auto selects a safe execution route for each user turn.
+    if (trimmed === '/auto') {
+      await client.updateSessionSettings({ mode: 'auto' });
+      console.log(`\n  ✦ ${c.magenta}${c.bold}Switched to AUTO mode${c.reset} ${c.dim}(read-only by default; explicit action requests use build routing and normal permission checks).${c.reset}\n`);
       continue;
     }
 
@@ -1261,7 +1279,7 @@ async function runInteractive(parsed) {
 
     // New session
     if (trimmed === '/new') {
-      const fresh = await client.createSession({ mode: 'build', model: client.sessionData.model });
+      const fresh = await client.createSession({ mode: client.sessionData.mode || 'build', model: client.sessionData.model });
       console.log(`\n  ✨ ${c.green}${c.bold}Fresh session initialized:${c.reset} ${c.cyan}${fresh.id}${c.reset}\n`);
       continue;
     }
@@ -1273,7 +1291,7 @@ async function runInteractive(parsed) {
       for (const s of list) {
         const activeMark = s.id === client.sessionId ? ` ${c.green}${c.bold}◀ ACTIVE${c.reset}` : '';
         const dateStr = new Date(s.updatedAt).toLocaleString();
-        const modeTag = s.mode === 'plan' ? `${c.yellow}[PLAN]${c.reset}` : `${c.green}[BUILD]${c.reset}`;
+        const modeTag = s.mode === 'plan' ? `${c.yellow}[PLAN]${c.reset}` : s.mode === 'auto' ? `${c.magenta}[AUTO]${c.reset}` : `${c.green}[BUILD]${c.reset}`;
         console.log(`${c.cyan}│${c.reset}  ${c.bold}${s.id}${c.reset}${activeMark}`);
         console.log(`${c.cyan}│${c.reset}    ${modeTag} ${c.dim}Model:${c.reset} ${c.cyan}${s.model || 'default'}${c.reset} ${c.dim}• ${s.messageCount} msgs • ${(s.tokens || 0).toLocaleString()} tok • ${dateStr}${c.reset}`);
       }
