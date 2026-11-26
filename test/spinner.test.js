@@ -23,10 +23,14 @@ function captureStdout(fn) {
 test('Nexus mascot has distinct moods and a stable three-line shape', () => {
   const idle = getMascotPose('idle', 0);
   const working = getMascotPose('working', 0);
+  const typing = getMascotPose('typing', 0);
+  const interrupted = getMascotPose('interrupted', 0);
   const success = getMascotPose('success', 0);
   const error = getMascotPose('error', 0);
 
   assert.notEqual(idle.face, working.face);
+  assert.equal(typing.sparkle, '⌨');
+  assert.equal(interrupted.sparkle, 'Ⅱ');
   assert.equal(success.sparkle, '✓');
   assert.equal(error.sparkle, '!');
   assert.equal(renderMascot('idle').length, 3);
@@ -38,6 +42,9 @@ test('spinner stores the selected mascot mood', () => {
   const spinner = new Spinner('Testing');
   spinner.start('Testing', 'working');
   assert.equal(spinner.mood, 'working');
+  spinner.update('Composing response...', 'typing');
+  assert.equal(spinner.mood, 'typing');
+  assert.equal(spinner.text, 'Composing response...');
   spinner.stop(true);
 });
 
