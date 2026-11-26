@@ -64,7 +64,7 @@ export function getMascotPose(mood = 'idle', frameIndex = 0) {
 
 export function renderMascot(mood = 'idle', frameIndex = 0) {
   const pose = getMascotPose(mood, frameIndex);
-  return ['     /\\_/\\', '  ✦ ( ' + pose.face + ' )', '     /づ' + pose.sparkle];
+  return ['   /\\_/\\', '  ( ' + pose.face + ' )', '   > ' + pose.sparkle + ' <'];
 }
 
 /**
@@ -106,7 +106,7 @@ export class Spinner {
       const line = `\r  ${mascot}  ${c.bold}${label}${c.reset} ${c.dim}(${elapsed}s)${c.reset}`;
       process.stdout.write(line + '\x1b[K');
       this.frameIndex++;
-    }, 80);
+    }, 140);
   }
 
   update(text) {
@@ -156,39 +156,37 @@ export class Spinner {
 export async function renderStartupAnimation({
   output = process.stdout,
   isTTY = Boolean(output.isTTY),
-  intervalMs = 120,
+  intervalMs = 130,
   sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms))
 } = {}) {
   if (!isTTY || process.env.NEXUS_NO_ANIMATION === '1') return false;
 
   const stages = [
-    { mood: 'idle', frame: 0, label: 'Waking up your companion' },
-    { mood: 'thinking', frame: 1, label: 'Checking the workspace' },
-    { mood: 'success', frame: 0, label: 'Nexus is ready' }
+    { mood: 'idle', frame: 0, label: 'Waking up' },
+    { mood: 'thinking', frame: 1, label: 'Checking workspace' },
+    { mood: 'success', frame: 0, label: 'Ready' }
   ];
+  const width = Math.max(24, (Number(output.columns) || 80) - 4);
 
   output.write('\x1b[?25l');
   try {
-    for (let index = 0; index < stages.length; index++) {
-      const stage = stages[index];
-      const mascot = renderMascot(stage.mood, stage.frame);
-      const lines = [
-        '  ' + c.brand + c.bold + 'NEXI' + c.reset + '  ' + c.dim + 'YOUR NEXUS COMPANION' + c.reset,
-        '  ' + c.brightWhite + mascot[0] + c.reset + '    ' + c.bold + 'NEXUSCODE' + c.reset,
-        '  ' + c.brand + mascot[1] + c.reset + '    ' + c.dim + stage.label + c.reset,
-        '  ' + c.brand + mascot[2] + c.reset
-      ];
-      if (index === 0) output.write('\n');
-      else output.write('\x1b[4A');
-      output.write(lines.map(line => '\r\x1b[K' + line).join('\n'));
+    for (const stage of stages) {
+      const pose = getMascotPose(stage.mood, stage.frame);
+      const label = clipTerminalText(
+        'NEXI  (' + pose.face + ') ' + pose.sparkle + '  ' + stage.label,
+        width
+      );
+      const color = stage.mood === 'success' ? c.green : c.brand;
+      output.write('\r\x1b[2K  ' + color + label + c.reset);
       await sleep(intervalMs);
     }
-    output.write('\n\n');
+    output.write('\n');
   } finally {
     output.write('\x1b[?25h');
   }
   return true;
 }
+
 /** Show a version alert without interrupting the normal prompt flow. */
 export function renderUpdateNotice(updateInfo) {
   if (!updateInfo?.updateAvailable || !updateInfo.latestVersion) return false;
@@ -279,11 +277,22 @@ export function renderBanner({ sessionId, mode, model, gitBranch = 'clean' }) {
 
   console.log('');
   if (width >= 66) {
-    console.log('  ' + c.brand + mascot[0] + c.reset + '     ' + c.bold + c.brand + 'NEXUSCODE' + c.reset + '  ' + c.dim + 'v' + APP_VERSION + c.reset);
-    console.log('  ' + c.brand + mascot[1] + c.reset + '   ' + c.brightWhite + 'A small companion for ambitious work.' + c.reset);
-    console.log('  ' + c.brand + mascot[2] + c.reset + '     ' + c.green + '● ONLINE' + c.reset + '  ' + c.dim + modeLabel + c.reset);
+    console.log(
+      '  ' + c.brand + mascot[0] + c.reset + '    ' +
+      c.bold + c.brightWhite + 'NEXUSCODE' + c.reset + '  ' +
+      c.dim + 'v' + APP_VERSION + c.reset
+    );
+    console.log(
+      '  ' + c.brand + mascot[1] + c.reset + '    ' +
+      c.green + '● ONLINE' + c.reset + '  ' +
+      c.dim + modeLabel + c.reset
+    );
+    console.log(
+      '  ' + c.brand + mascot[2] + c.reset + '    ' +
+      c.dim + project + '  ·  ' + (gitBranch || 'clean') + c.reset
+    );
   } else {
-    console.log('  ' + c.bold + c.brand + 'NEXUSCODE' + c.reset + '  ' + c.dim + 'v' + APP_VERSION + c.reset);
+    console.log('  ' + c.bold + c.brightWhite + 'NEXUSCODE' + c.reset + '  ' + c.dim + 'v' + APP_VERSION + c.reset);
     for (const line of mascot) console.log('  ' + c.brand + line + c.reset);
     console.log('  ' + c.green + '● ONLINE' + c.reset + '  ' + c.dim + modeLabel + c.reset);
   }
@@ -295,12 +304,12 @@ export function renderBanner({ sessionId, mode, model, gitBranch = 'clean' }) {
     console.log('  ' + c.muted + key + c.reset + ' ' + c.brightWhite + content + c.reset);
   };
   row('MODEL', model || 'not selected');
-  row('WORKSPACE', project + '  ·  BRANCH ' + (gitBranch || 'clean'));
-  row('SESSION', shortSession + '  ·  MODE ' + modeLabel);
+  row('SESSION', shortSession);
   console.log('  ' + c.muted + '─'.repeat(width) + c.reset);
   console.log('\n  ' + c.brightWhite + c.bold + 'Ready when you are.' + c.reset);
-  console.log('  ' + c.dim + 'Describe a task or type / to browse commands.' + c.reset + '\n');
+  console.log('  ' + c.dim + 'Type a task or / to browse commands.' + c.reset + '\n');
 }
+
 /**
  * Build a compact status rail directly above the interactive prompt.
  */
