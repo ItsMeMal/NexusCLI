@@ -478,7 +478,7 @@ export async function promptSecret(message = 'API key') {
  * @param {Array<string>} [options.history] - Command history for Up/Down arrows
  * @returns {Promise<string>} User input line
  */
-export async function promptWithAutocomplete({ header = '', arrow = '╰─❯ ', history = [] }) {
+export async function promptWithAutocomplete({ header = '', arrow = '╰─❯ ', history = [], onInterrupt = null }) {
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     return new Promise((resolve) => {
       const rl = readline.createInterface({
@@ -578,13 +578,15 @@ export async function promptWithAutocomplete({ header = '', arrow = '╰─❯ '
     };
 
     const onKeypress = (str, key) => {
-      // Ctrl+C: Cancel / Exit
+      // Ctrl+C: interrupt the active operation when a handler is provided;
+      // otherwise return the normal exit command so the caller can clean up.
       if (key && key.ctrl && key.name === 'c') {
-        clearHintBlock();
-        process.stdout.write('\n');
-        process.stdin.removeListener('keypress', onKeypress);
-        if (!wasRaw) process.stdin.setRawMode(false);
-        process.exit(0);
+        if (typeof onInterrupt === 'function') {
+          onInterrupt();
+          cleanupAndResolve('');
+        } else {
+          cleanupAndResolve('exit');
+        }
         return;
       }
 
