@@ -1,9 +1,6 @@
 // Example plugin: registers a simple tool and a before_tool hook.
-export default function plugin(ctx) {
-  const { registry, hooks, workingDir } = ctx;
-
-  // Register a custom tool
-  registry.register({
+export default function plugin({ registerTool, hooks, workingDir }) {
+  registerTool({
     name: 'plugin_echo',
     description: '[Plugin] Echo a message back with a prefix.',
     parameters: {
@@ -18,9 +15,7 @@ export default function plugin(ctx) {
     }
   });
 
-  // Hook: log before tool execution
-  hooks.before_tool.push(async ({ tool, args }) => {
-    // Example: could modify args or block. Here we just observe.
+  hooks.before_tool.push(async ({ tool }) => {
     console.error(`[plugin] before_tool: ${tool}`);
   });
 
