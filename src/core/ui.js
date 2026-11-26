@@ -1,7 +1,7 @@
 import readline from 'node:readline';
 import fs from 'node:fs';
 
-let APP_VERSION = '0.1.3';
+let APP_VERSION = '0.1.4';
 try { APP_VERSION = JSON.parse(fs.readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version || APP_VERSION; } catch {}
 
 // ─── ANSI Styling Palette (Truecolor + High-contrast ANSI fallback) ──────────
