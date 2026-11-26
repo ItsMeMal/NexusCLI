@@ -456,6 +456,10 @@ async function runInteractive(parsed) {
       if (interruptRequested) return abortPromise;
       interruptRequested = true;
       spinner.stop(true);
+      if (tokenStreamStarted) {
+        process.stdout.write('\n');
+        tokenStreamStarted = false;
+      }
       console.log('  ' + c.amber + 'Stop requested. Waiting for the active operation to stop…' + c.reset);
       if (messageAccepted) return requestAbort();
       return null;
@@ -485,6 +489,7 @@ async function runInteractive(parsed) {
           if (interruptRequested) spinner.update('Waiting for the active operation to stop…');
         },
         onToken: (tok) => {
+          if (interruptRequested) return;
           if (!tokenStreamStarted) {
             spinner.stop(true);
             const pose = getMascotPose('success');
@@ -494,6 +499,7 @@ async function runInteractive(parsed) {
           process.stdout.write(tok);
         },
         onToolStart: (event) => {
+          if (interruptRequested) return;
           if (tokenStreamStarted) {
             process.stdout.write('\n');
             tokenStreamStarted = false;
@@ -503,6 +509,7 @@ async function runInteractive(parsed) {
           spinner.start('Running ' + event.name + ' · ' + shortArgs, 'working');
         },
         onToolResult: (event) => {
+          if (interruptRequested) return;
           const outStr = String(event.output || '');
           const snippet = outStr.length > 85
             ? outStr.slice(0, 85).replace(/\r?\n/g, ' ') + '…'
