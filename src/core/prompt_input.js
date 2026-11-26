@@ -80,7 +80,7 @@ export function buildHintLines(query, matches, tabCycleIdx = -1, { columns, rows
   });
 
   if (remainingBelow > 0) lines.push('  ' + c.dim + '↓ ' + remainingBelow + ' more below' + c.reset);
-  lines.push('  ' + c.dim + '↑↓ move  ·  Tab complete  ·  Enter run  ·  Esc clear' + c.reset);
+  lines.push('  ' + c.dim + clipPickerText('↑↓ move  ·  Tab complete  ·  Enter run  ·  Esc clear', width - 2) + c.reset);
   return lines;
 }
 
