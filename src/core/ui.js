@@ -50,11 +50,44 @@ export const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', 
 
 
 const NEXUS_MASCOT_POSES = {
-  idle: [{ face: '•ᴗ•', sparkle: '✦' }, { face: '◕ᴗ◕', sparkle: '✧' }],
-  thinking: [{ face: '•̀ᴗ•́', sparkle: '⌁' }, { face: '•ω•', sparkle: '✧' }, { face: '◕ω◕', sparkle: '✦' }],
-  working: [{ face: '•̀_•́', sparkle: '⚙' }, { face: '•̀ᴗ•́', sparkle: '✦' }, { face: '◕ᴗ◕', sparkle: '✧' }],
-  success: [{ face: '^ᴗ^', sparkle: '✓' }, { face: '•ᴗ•', sparkle: '✦' }],
-  error: [{ face: ';ᴗ;', sparkle: '!' }, { face: '×ᴗ×', sparkle: '!' }]
+  idle: [
+    { face: '•ᴗ•', sparkle: '✦' },
+    { face: '◕ᴗ◕', sparkle: '✧' },
+    { face: '•ᴗ•', sparkle: '✦' },
+    { face: '－ᴗ－', sparkle: 'z' }
+  ],
+  thinking: [
+    { face: '•̀ᴗ•́', sparkle: '⌁' },
+    { face: '•ω•', sparkle: '✧' },
+    { face: '•̀_•́', sparkle: '⋯' },
+    { face: '◕ω◕', sparkle: '✧' }
+  ],
+  typing: [
+    { face: '•̀ᴗ•́', sparkle: '⌨' },
+    { face: '•̀ω•́', sparkle: '⌨' },
+    { face: '•̀ᴗ•́', sparkle: '⌨' },
+    { face: '•̀ω•́', sparkle: '⌨' }
+  ],
+  working: [
+    { face: '•̀_•́', sparkle: '⚙' },
+    { face: '•̀ᴗ•́', sparkle: '⚙' },
+    { face: '◕ᴗ◕', sparkle: '✦' },
+    { face: '•̀_•́', sparkle: '⚙' }
+  ],
+  success: [
+    { face: '^ᴗ^', sparkle: '✓' },
+    { face: '≧ᴗ≦', sparkle: '✦' },
+    { face: '•ᴗ•', sparkle: '✓' }
+  ],
+  error: [
+    { face: ';ᴗ;', sparkle: '!' },
+    { face: '×ᴗ×', sparkle: '!' },
+    { face: '；へ；', sparkle: '!' }
+  ],
+  interrupted: [
+    { face: '－ᴗ－', sparkle: 'Ⅱ' },
+    { face: '•ᴗ•', sparkle: 'Ⅱ' }
+  ]
 };
 
 export function getMascotPose(mood = 'idle', frameIndex = 0) {
@@ -100,17 +133,23 @@ export class Spinner {
       const pose = getMascotPose(this.mood, this.frameIndex);
       const elapsed = ((Date.now() - this.startTime) / 1000).toFixed(1);
       const columns = Number(process.stdout.columns) || 80;
-      const label = clipTerminalText(this.text, Math.max(12, columns - 28));
-      const faceColor = this.mood === 'error' ? c.rose : this.mood === 'success' ? c.green : c.brand;
-      const mascot = faceColor + '(' + pose.face + ')' + c.reset + ' ' + c.amber + pose.sparkle + c.reset;
-      const line = `\r  ${mascot}  ${c.bold}${label}${c.reset} ${c.dim}(${elapsed}s)${c.reset}`;
+      const label = clipTerminalText(this.text, Math.max(12, columns - 30));
+      const faceColor = this.mood === 'error' ? c.rose
+        : this.mood === 'success' ? c.green
+          : this.mood === 'typing' ? c.cyan
+            : this.mood === 'working' ? c.amber : c.brand;
+      const mascot = faceColor + '(' + pose.face + ')' + c.reset +
+        ' ' + c.amber + pose.sparkle + c.reset;
+      const line = `\r  ${c.dim}Nexi${c.reset} ${mascot}  ${c.bold}${label}${c.reset} ${c.dim}· ${elapsed}s${c.reset}`;
       process.stdout.write(line + '\x1b[K');
       this.frameIndex++;
-    }, 140);
+    }, 125);
   }
 
-  update(text) {
+  update(text, mood = this.mood) {
     this.text = text;
+    this.mood = mood;
+    this.frameIndex = 0;
   }
 
   stop(clear = true) {
@@ -163,8 +202,9 @@ export async function renderStartupAnimation({
 
   const stages = [
     { mood: 'idle', frame: 0, label: 'Waking up' },
+    { mood: 'idle', frame: 1, label: 'Hello there' },
     { mood: 'thinking', frame: 1, label: 'Checking workspace' },
-    { mood: 'success', frame: 0, label: 'Ready' }
+    { mood: 'success', frame: 1, label: 'Ready' }
   ];
   const width = Math.max(24, (Number(output.columns) || 80) - 4);
 
