@@ -142,7 +142,7 @@ For example:
 Review this repository for security issues. Do not modify any files.
 ```
 
-Use `/plan` for read-only work or `/build` when you want NexusCode to make changes.
+Use `/plan` for strictly read-only work, `/build` for direct execution, or `/auto` to let NexusCode choose a safe route for each request. Auto treats unclear requests as read-only; explicit change requests use build routing and still follow the configured permission prompts.
 
 ## Connect an AI provider
 
@@ -364,6 +364,7 @@ Type `/` in the interactive prompt to open the searchable command palette. Use t
 |---|---|
 | `/plan` | Switch to read-only mode |
 | `/build` | Switch to full execution mode |
+| `/auto` | Automatically choose a read-only or execution route per request |
 | `/connect` · `/provider` | Connect or manage AI providers |
 | `/models` · `/model` | Search and select a model |
 | `/model <provider/model>` | Select a model directly |
@@ -414,7 +415,7 @@ Available options include:
 |---|---|
 | `--json` | Write structured results to stdout |
 | `--model <id>` | Override the selected model |
-| `--mode <mode>` | Set the execution mode, such as `plan` or `build` |
+| `--mode <mode>` | Set the execution mode: `plan`, `build`, or `auto` |
 | `--approve`, `--yes`, `-y` | Automatically approve permission prompts |
 | `--debug` | Enable debug output |
 
