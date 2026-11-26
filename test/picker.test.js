@@ -22,7 +22,8 @@ test('startup banner no longer uses the legacy framed panel', () => {
   const rendered = stripAnsi(output.join('\n'));
   assert.match(rendered, /NEXUSCODE/);
   assert.ok(rendered.includes('default-gateway/Elaina-Free'));
-  assert.match(rendered, /WORKSPACE/);
+  assert.match(rendered, /SESSION/);
+  assert.match(rendered, /main/);
   assert.match(rendered, /Ready when you are/);
   assert.match(rendered, /•ᴗ•/);
   assert.equal(renderMascot('idle').length, 3);
