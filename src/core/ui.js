@@ -1,5 +1,6 @@
 import readline from 'node:readline';
 import fs from 'node:fs';
+import path from 'node:path';
 
 let APP_VERSION = '0.1.4';
 try { APP_VERSION = JSON.parse(fs.readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version || APP_VERSION; } catch {}
@@ -127,32 +128,24 @@ export class Spinner {
 export async function renderStartupAnimation({
   output = process.stdout,
   isTTY = Boolean(output.isTTY),
-  intervalMs = 90,
+  intervalMs = 110,
   sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms))
 } = {}) {
   if (!isTTY || process.env.NEXUS_NO_ANIMATION === '1') return false;
 
-  const frames = ['◴', '◷', '◶', '◵'];
   const stages = [
-    { label: 'Preparing workspace', progress: 24 },
-    { label: 'Initializing agent runtime', progress: 52 },
-    { label: 'Connecting local interface', progress: 82 },
-    { label: 'Ready', progress: 100 }
+    { glyph: '◴', label: 'Starting terminal interface', color: c.cyan },
+    { glyph: '◷', label: 'Local session connected', color: c.brand },
+    { glyph: '✓', label: 'Ready', color: c.green }
   ];
 
   output.write('\x1b[?25l');
   try {
-    for (let index = 0; index < stages.length; index++) {
-      const stage = stages[index];
-      const filled = Math.round(stage.progress / 10);
-      const bar = '█'.repeat(filled) + '░'.repeat(10 - filled);
-      const glyph = index === stages.length - 1 ? '✓' : frames[index % frames.length];
-      const color = index === stages.length - 1 ? c.green : c.cyan;
+    for (const stage of stages) {
       output.write(
-        '\r\x1b[K  ' + color + glyph + c.reset + ' ' +
-        c.bold + 'NEXUSCODE' + c.reset + ' ' +
-        c.dim + stage.label + c.reset + ' ' +
-        color + bar + c.reset + ' ' + c.dim + stage.progress + '%' + c.reset
+        '\r\x1b[K  ' + stage.color + stage.glyph + c.reset +
+        '  ' + c.bold + 'NEXUSCODE' + c.reset +
+        '  ' + c.dim + stage.label + c.reset
       );
       await sleep(intervalMs);
     }
@@ -203,44 +196,101 @@ export function padVisual(str, targetLen, align = 'left') {
   return align === 'right' ? pad + str : str + pad;
 }
 
+function terminalDisplayWidth(value) {
+  return Array.from(stripAnsi(String(value ?? ''))).reduce((width, char) => {
+    const code = char.codePointAt(0);
+    const isWide = code >= 0x1100 && (
+      code <= 0x115f || code === 0x2329 || code === 0x232a ||
+      (code >= 0x2e80 && code <= 0xa4cf) ||
+      (code >= 0xac00 && code <= 0xd7a3) ||
+      (code >= 0xf900 && code <= 0xfaff) ||
+      (code >= 0xfe10 && code <= 0xfe19) ||
+      (code >= 0xfe30 && code <= 0xfe6f) ||
+      (code >= 0xff00 && code <= 0xff60) ||
+      (code >= 0xffe0 && code <= 0xffe6) ||
+      (code >= 0x1f300 && code <= 0x1faff)
+    );
+    return width + (isWide ? 2 : 1);
+  }, 0);
+}
+
+function clipTerminalText(value, maxWidth) {
+  const text = String(value ?? '').replace(/[\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim();
+  const limit = Math.max(0, Number(maxWidth) || 0);
+  if (terminalDisplayWidth(text) <= limit) return text;
+  if (limit <= 1) return limit ? '…' : '';
+
+  let result = '';
+  let used = 0;
+  for (const char of Array.from(text)) {
+    const charWidth = terminalDisplayWidth(char);
+    if (used + charWidth > limit - 1) break;
+    result += char;
+    used += charWidth;
+  }
+  return result + '…';
+}
+
 /**
  * Render Welcome Banner (Agency / Linear / Claude Code grade)
  */
-export function renderBanner({ sessionId, mode, model, serverUrl, gitBranch = 'clean' }) {
-  const width = 76;
-  const innerWidth = width - 4; // between "│ " and " │"
-  const hr = '─'.repeat(width - 2);
+export function renderBanner({ sessionId, mode, model, gitBranch = 'clean' }) {
+  const columns = Number(process.stdout.columns) || 80;
+  const width = Math.max(20, Math.min(92, columns - 4));
+  const project = path.basename(process.cwd()) || 'workspace';
+  const modeLabel = mode === 'plan' ? 'PLAN' : 'BUILD';
+  const shortSession = sessionId && sessionId.length > 22
+    ? sessionId.slice(0, 18) + '…'
+    : (sessionId || 'active');
 
-  const modeBadge = mode === 'plan'
-    ? `${c.bgYellow}${c.black}${c.bold} PLAN ${c.reset}`
-    : `${c.bgGreen}${c.black}${c.bold} BUILD ${c.reset}`;
+  const statusText = '● ONLINE';
+  const brandText = 'NEXUSCODE  /  v' + APP_VERSION;
+  const topGap = Math.max(2, width - terminalDisplayWidth(brandText) - terminalDisplayWidth(statusText));
 
-  const topBrand = `${c.bold}${c.brightWhite}✦ NEXUSCODE${c.reset} ${c.dim}v${APP_VERSION}${c.reset}`;
-  const topStatus = `${c.green}● ONLINE${c.reset} ${modeBadge}`;
-  const row1Gap = Math.max(1, innerWidth - stripAnsi(topBrand).length - stripAnsi(topStatus).length);
+  const rule = '  ' + c.muted + '─'.repeat(width) + c.reset;
+  const row = (label, value) => {
+    const key = String(label).toUpperCase().padEnd(10, ' ');
+    const content = clipTerminalText(value, width - 13);
+    console.log('  ' + c.muted + key + c.reset + ' ' + c.brightWhite + content + c.reset);
+  };
 
-  // Interactive mascot & connection info rows
-  const m1 = `  ${c.magenta}∧,,∧${c.reset}   `;
-  const m2 = `${c.magenta}( ˘ᴗ˘ ) ${c.reset}`;
-  const m3 = `${c.magenta}c( つ🪄*${c.reset}`;
+  console.log(
+    '\n  ' + c.brand + c.bold + 'NEXUSCODE' + c.reset +
+    '  ' + c.dim + '/  v' + APP_VERSION + c.reset +
+    ' '.repeat(topGap) +
+    c.green + c.bold + statusText + c.reset
+  );
+  console.log(rule);
+  row('MODEL', model || 'not selected');
+  row('WORKSPACE', project + '  ·  BRANCH ' + (gitBranch || 'clean'));
+  row('SESSION', shortSession + '  ·  MODE ' + modeLabel);
+  console.log(rule);
+  console.log('\n  ' + c.brightWhite + c.bold + 'Ready when you are.' + c.reset);
+  console.log('  ' + c.dim + 'Describe a task or type / to browse commands.' + c.reset + '\n');
+}
 
-  const shortSession = sessionId && sessionId.length > 28 ? sessionId.slice(0, 26) + '…' : (sessionId || 'active');
-  const infoW = innerWidth - 9;
-  const r1Info = `${c.dim}Model:${c.reset} ${c.cyan}${c.bold}${model}${c.reset}   ${c.dim}Git:${c.reset} ${c.magenta} ${gitBranch}${c.reset}   ${c.dim}Endpoint:${c.reset} ${c.slate}${serverUrl.replace(/^http:\/\//, '')}${c.reset}`;
-  const r2Info = `${c.dim}Session:${c.reset} ${c.slate}${shortSession}${c.reset}   ${c.dim}Permissions:${c.reset} ${c.amber}Smart Guardrails${c.reset}`;
-  const r3Info = `${c.cyan}${c.bold}Nexus:${c.reset} ${c.dim}"Aku koordinasikan tools, agents, dan model untuk menyelesaikan tujuanmu."${c.reset}`;
+/**
+ * Build a compact status rail directly above the interactive prompt.
+ */
+export function renderSessionPrompt({ mode, gitBranch = 'main', model = '', columns = process.stdout.columns || 80 }) {
+  const width = Math.max(24, Math.min(120, Number(columns) - 4 || 76));
+  const modeLabel = mode === 'plan' ? 'PLAN' : 'BUILD';
+  const branchLimit = Math.max(6, Math.min(20, Math.floor(width * 0.28)));
+  const branch = clipTerminalText(gitBranch || 'clean', branchLimit);
+  const prefix = '  ' + modeLabel + '  ·  ' + branch + '  ·  ';
+  const modelLimit = Math.max(4, width - terminalDisplayWidth(prefix));
+  const modelLabel = clipTerminalText(model || 'default', modelLimit);
+  const modeColor = mode === 'plan' ? c.amber : c.teal;
 
-  const hint1 = `${c.dim}Type any task or question • Enter ${c.bold}${c.cyan}/${c.reset}${c.dim} or press ${c.bold}${c.cyan}[Tab]${c.reset}${c.dim} for slash commands${c.reset}`;
-
-  console.log(`\n${c.cyan}╭${hr}╮${c.reset}`);
-  console.log(`${c.cyan}│${c.reset}  ${topBrand}${' '.repeat(row1Gap)}${topStatus}  ${c.cyan}│${c.reset}`);
-  console.log(`${c.cyan}├${hr}┤${c.reset}`);
-  console.log(`${c.cyan}│${c.reset}  ${padVisual(m1 + r1Info, innerWidth)}  ${c.cyan}│${c.reset}`);
-  console.log(`${c.cyan}│${c.reset}  ${padVisual(m2 + r2Info, innerWidth)}  ${c.cyan}│${c.reset}`);
-  console.log(`${c.cyan}│${c.reset}  ${padVisual(m3 + r3Info, innerWidth)}  ${c.cyan}│${c.reset}`);
-  console.log(`${c.cyan}├${hr}┤${c.reset}`);
-  console.log(`${c.cyan}│${c.reset}  ${padVisual(hint1, innerWidth)}  ${c.cyan}│${c.reset}`);
-  console.log(`${c.cyan}╰${hr}╯${c.reset}\n`);
+  return {
+    header:
+      '  ' + modeColor + c.bold + modeLabel + c.reset +
+      '  ' + c.muted + '·' + c.reset + '  ' +
+      c.magenta + branch + c.reset +
+      '  ' + c.muted + '·' + c.reset + '  ' +
+      c.cyan + c.bold + modelLabel + c.reset + '\n',
+    arrow: '  ' + c.teal + c.bold + '›' + c.reset + ' '
+  };
 }
 
 /**
@@ -432,6 +482,7 @@ export default {
   stripAnsi,
   padVisual,
   renderBanner,
+  renderSessionPrompt,
   renderStartupAnimation,
   renderUpdateNotice,
   renderCommandList,
