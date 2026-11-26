@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Spinner, renderStartupAnimation } from '../src/core/ui.js';
+import { Spinner, getMascotPose, renderMascot, renderStartupAnimation } from '../src/core/ui.js';
 
 /**
  * Capture every write to process.stdout while fn() runs.
@@ -20,6 +20,27 @@ function captureStdout(fn) {
   return writes;
 }
 
+test('Nexus mascot has distinct moods and a stable three-line shape', () => {
+  const idle = getMascotPose('idle', 0);
+  const working = getMascotPose('working', 0);
+  const success = getMascotPose('success', 0);
+  const error = getMascotPose('error', 0);
+
+  assert.notEqual(idle.face, working.face);
+  assert.equal(success.sparkle, '✓');
+  assert.equal(error.sparkle, '!');
+  assert.equal(renderMascot('idle').length, 3);
+  assert.equal(renderMascot('working').length, 3);
+  assert.notDeepEqual(renderMascot('idle', 0), renderMascot('idle', 1));
+});
+
+test('spinner stores the selected mascot mood', () => {
+  const spinner = new Spinner('Testing');
+  spinner.start('Testing', 'working');
+  assert.equal(spinner.mood, 'working');
+  spinner.stop(true);
+});
+
 test('startup animation writes real terminal control sequences and restores the cursor', async () => {
   const writes = [];
   const output = {
@@ -37,6 +58,9 @@ test('startup animation writes real terminal control sequences and restores the 
   });
 
   assert.equal(shown, true);
+  assert.ok(writes.some(value => value.includes('NEXUSCODE')));
+  assert.ok(writes.some(value => value.includes('Waking up your companion')));
+  assert.ok(writes.some(value => value.includes('\\x1b[4A')));
   assert.equal(writes[0], '\x1b[?25l');
   assert.ok(writes.some(value => value.includes('\r\x1b[K')));
   assert.ok(writes.at(-2).endsWith('\n'));
