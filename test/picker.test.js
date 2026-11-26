@@ -1,7 +1,39 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { filterPickerOptions, formatPickerOption } from '../src/core/prompt_input.js';
+import { filterPickerOptions, formatPickerOption, getPickerWindow } from '../src/core/prompt_input.js';
 import { stripAnsi } from '../src/core/ui.js';
+
+test('picker viewport keeps the selected result visible and clamps to list bounds', () => {
+  const items = Array.from({ length: 20 }, (_, index) => ({ id: 'item-' + index }));
+
+  const middle = getPickerWindow(items, 12, 6);
+  assert.equal(middle.start, 9);
+  assert.equal(middle.end, 15);
+  assert.equal(middle.items.length, 6);
+  assert.equal(middle.selectedIndex, 12);
+  assert.ok(middle.items.some(item => item.id === 'item-12'));
+
+  const first = getPickerWindow(items, -4, 6);
+  assert.equal(first.start, 0);
+  assert.equal(first.selectedIndex, 0);
+
+  const last = getPickerWindow(items, 200, 6);
+  assert.equal(last.end, 20);
+  assert.equal(last.selectedIndex, 19);
+  assert.equal(last.hasBelow, false);
+});
+
+test('picker viewport handles empty and shorter-than-page lists', () => {
+  assert.deepEqual(getPickerWindow([], 4, 6), {
+    start: 0, end: 0, items: [], selectedIndex: -1, hasAbove: false, hasBelow: false
+  });
+
+  const short = getPickerWindow([{ id: 'only' }], 5, 6);
+  assert.equal(short.start, 0);
+  assert.equal(short.end, 1);
+  assert.equal(short.selectedIndex, 0);
+  assert.equal(short.items.length, 1);
+});
 
 test('provider and model picker rows stay within terminal width', () => {
   const option = {
