@@ -49,15 +49,16 @@ export async function runAgentLoop({
 
   while (step < maxSteps) {
     if (ctx.abortSignal?.aborted) {
-      const abortError = new Error('Session execution aborted by user.');
-      onEvent({ type: 'error', error: abortError, step });
-      return {
+      const abortResult = {
         completed: false,
         reason: 'aborted',
         steps: step,
         messages,
-        finalMessage: messages[messages.length - 1]
+        finalMessage: messages[messages.length - 1],
+        usage: ctx.session?.usage
       };
+      onEvent({ type: 'done', ...abortResult });
+      return abortResult;
     }
 
     step++;
@@ -82,8 +83,33 @@ export async function runAgentLoop({
     try {
       assistantMessage = await chatFn(redactedMessages, toolDefinitions, llmOptions);
     } catch (err) {
+      if (ctx.abortSignal?.aborted || err?.name === 'AbortError') {
+        const abortResult = {
+          completed: false,
+          reason: 'aborted',
+          steps: step,
+          messages,
+          finalMessage: messages[messages.length - 1],
+          usage: ctx.session?.usage
+        };
+        onEvent({ type: 'done', ...abortResult });
+        return abortResult;
+      }
       onEvent({ type: 'error', error: err, step });
       throw err;
+    }
+
+    if (ctx.abortSignal?.aborted) {
+      const abortResult = {
+        completed: false,
+        reason: 'aborted',
+        steps: step,
+        messages,
+        finalMessage: messages[messages.length - 1],
+        usage: ctx.session?.usage
+      };
+      onEvent({ type: 'done', ...abortResult });
+      return abortResult;
     }
 
     if (assistantMessage.usage && ctx.session?.addUsage) {
