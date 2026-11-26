@@ -12,7 +12,7 @@ test('startup banner no longer uses the legacy framed panel', () => {
     renderBanner({
       sessionId: 'ses_test_session_1234567890',
       mode: 'build',
-  assert.ok(rendered.includes('default-gateway/Elaina-Free'));
+      model: 'default-gateway/Elaina-Free',
       gitBranch: 'main'
     });
   } finally {
@@ -21,7 +21,7 @@ test('startup banner no longer uses the legacy framed panel', () => {
 
   const rendered = stripAnsi(output.join('\n'));
   assert.match(rendered, /NEXUSCODE/);
-  assert.match(rendered, /default-gateway\\/Elaina-Free/);
+  assert.ok(rendered.includes('default-gateway/Elaina-Free'));
   assert.match(rendered, /WORKSPACE/);
   assert.match(rendered, /Ready when you are/);
   assert.doesNotMatch(rendered, /╭|╰|│/);
