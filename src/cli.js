@@ -185,7 +185,29 @@ class NexusClient {
     return res.ok;
   }
 
-  async sendMessage(content, { onToken, onToolStart, onToolResult, onPermission, onDone, onError }) {
+  async abortSession() {
+    if (!this.sessionId) return false;
+    const res = await fetch(`${this.serverUrl}/session/${this.sessionId}/abort`, {
+      method: 'POST',
+      headers: this.getHeaders()
+    });
+    const payload = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(payload.error || `Failed to interrupt session: HTTP ${res.status}`);
+    }
+    return Boolean(payload.aborted);
+  }
+
+  async sendMessage(content, {
+    onToken,
+    onToolStart,
+    onToolResult,
+    onPermission,
+    onInterrupt,
+    onAccepted,
+    onDone,
+    onError
+  } = {}) {
     const sseRes = await fetch(`${this.serverUrl}/session/${this.sessionId}/events`, {
       headers: this.getHeaders()
     });
@@ -235,7 +257,9 @@ class NexusClient {
               } else if (currentEvent === 'tool.result') {
                 onToolResult?.(parsedData);
               } else if (currentEvent === 'permission.request') {
-                onPermission?.(parsedData);
+                await onPermission?.(parsedData);
+              } else if (currentEvent === 'interrupt.requested') {
+                onInterrupt?.(parsedData);
               } else if (currentEvent === 'done') {
                 onDone?.(parsedData);
                 try { await reader.cancel(); } catch {}
@@ -268,6 +292,7 @@ class NexusClient {
       throw new Error(`Failed to send message: HTTP ${postRes.status}: ${errText}`);
     }
 
+    await onAccepted?.();
     return await streamPromise;
   }
 }
@@ -398,86 +423,172 @@ async function runInteractive(parsed) {
 
   const executeTurn = async (userInput, autoApprove = false) => {
     let tokenStreamStarted = false;
+    let interruptRequested = false;
+    let interruptMessageShown = false;
+    let messageAccepted = false;
+    let abortPromise = null;
     const turnStartTime = Date.now();
-    spinner.start('Thinking through the task...', 'thinking');
+    const canCaptureInterrupt = Boolean(process.stdin.isTTY && process.stdout.isTTY);
+    const wasRaw = canCaptureInterrupt ? Boolean(process.stdin.isRaw) : false;
 
-    await client.sendMessage(userInput, {
-      onToken: (tok) => {
-        if (!tokenStreamStarted) {
-          spinner.stop(true);
-          const pose = getMascotPose('success');
-          console.log(`\n  ${c.brand}✦${c.reset} ${c.bold}${c.brightWhite}Nexi${c.reset} ${c.magenta}(${pose.face})${c.reset} ${c.dim}›${c.reset}\n`);
-          tokenStreamStarted = true;
-        }
-        process.stdout.write(tok);
-      },
-      onToolStart: (event) => {
-        if (tokenStreamStarted) {
-          process.stdout.write('\n');
-          tokenStreamStarted = false;
-        }
-        const argsPreview = JSON.stringify(event.args || {});
-        const shortArgs = argsPreview.length > 55 ? argsPreview.slice(0, 52) + '…' : argsPreview;
-        spinner.start(`Running ${event.name} · ${shortArgs}`, 'working');
-      },
-      onToolResult: (event) => {
-        const outStr = String(event.output || '');
-        const snippet = outStr.length > 85
-          ? outStr.slice(0, 85).replace(/\r?\n/g, ' ') + '…'
-          : outStr.replace(/\r?\n/g, ' ');
-        spinner.succeed(`${c.bold}${event.name}${c.reset} completed · ${c.dim}${snippet || '(success)'}${c.reset}`);
-      },
-      onPermission: async (event) => {
-        spinner.stop(true);
-
-        if (autoApprove) {
-          await client.answerPermission(event.id, true);
-          return;
-        }
-
-        renderSecurityPrompt({
-          tool: event.tool,
-          args: event.args,
-          reason: event.reason
-        });
-
-        const ans = await promptWithAutocomplete({
-          header: '',
-          arrow: `\n  ${c.bold}Authorize execution? (y/N): ${c.reset}`
-        });
-
-        const allow = ans.trim().toLowerCase() === 'y' || ans.trim().toLowerCase() === 'yes';
-        if (allow) {
-          console.log(`  ${c.green}✔ Action authorized.${c.reset}\n`);
-        } else {
-          console.log(`  ${c.red}✖ Action denied by user.${c.reset}\n`);
-        }
-        await client.answerPermission(event.id, allow);
-      },
-      onDone: (doneData) => {
-        spinner.stop(true);
-        if (tokenStreamStarted) {
-          process.stdout.write('\n');
-        }
-        const duration = ((Date.now() - turnStartTime) / 1000).toFixed(1);
-        const completedPose = getMascotPose('success');
-        if (doneData.usage) {
-          const u = doneData.usage;
-          const promptFmt = (u.prompt_tokens || 0).toLocaleString();
-          const compFmt = (u.completion_tokens || 0).toLocaleString();
-          const totalFmt = (u.total_tokens || 0).toLocaleString();
-          console.log(`  ${c.green}(${completedPose.face}) ✓${c.reset} ${c.cyan}${totalFmt} tokens${c.reset} ${c.dim}(${promptFmt} in / ${compFmt} out) · ${duration}s${c.reset}\n`);
-        } else {
-          console.log(`  ${c.green}(${completedPose.face}) ✓${c.reset} ${c.dim}Turn completed · ${duration}s${c.reset}\n`);
-        }
-      },
-      onError: (errData) => {
-        spinner.fail(`Execution error: ${errData.message}`);
-        console.log('');
+    const showInterrupted = () => {
+      if (interruptMessageShown) return;
+      interruptMessageShown = true;
+      spinner.stop(true);
+      if (tokenStreamStarted) {
+        process.stdout.write('\n');
+        tokenStreamStarted = false;
       }
-    });
+      console.log('  ' + c.amber + '( •̀_•́ ) Turn interrupted. No further model steps will run.' + c.reset + '\n');
+    };
 
-    // Auto-checkpoint after each turn in build mode
+    const requestAbort = () => {
+      if (!abortPromise) {
+        abortPromise = client.abortSession().catch((error) => {
+          console.error('  ' + c.red + 'Could not send interrupt request: ' + error.message + c.reset);
+          return false;
+        });
+      }
+      return abortPromise;
+    };
+
+    const requestInterrupt = () => {
+      if (interruptRequested) return abortPromise;
+      interruptRequested = true;
+      spinner.stop(true);
+      console.log('  ' + c.amber + 'Stop requested. Waiting for the active operation to stop…' + c.reset);
+      if (messageAccepted) return requestAbort();
+      return null;
+    };
+
+    const onTurnKeypress = (_str, key = {}) => {
+      if (key.ctrl && key.name === 'c') {
+        requestInterrupt();
+      }
+    };
+
+    spinner.start('Thinking through the task...', 'thinking');
+    if (canCaptureInterrupt) {
+      readline.emitKeypressEvents(process.stdin);
+      if (!wasRaw) process.stdin.setRawMode(true);
+      process.stdin.resume();
+      process.stdin.on('keypress', onTurnKeypress);
+    }
+
+    try {
+      await client.sendMessage(userInput, {
+        onAccepted: () => {
+          messageAccepted = true;
+          if (interruptRequested) return requestAbort();
+        },
+        onInterrupt: () => {
+          if (interruptRequested) spinner.update('Waiting for the active operation to stop…');
+        },
+        onToken: (tok) => {
+          if (!tokenStreamStarted) {
+            spinner.stop(true);
+            const pose = getMascotPose('success');
+            console.log('\n  ' + c.brand + '✦' + c.reset + ' ' + c.bold + c.brightWhite + 'Nexi' + c.reset + ' ' + c.magenta + '(' + pose.face + ')' + c.reset + ' ' + c.dim + '›' + c.reset + '\n');
+            tokenStreamStarted = true;
+          }
+          process.stdout.write(tok);
+        },
+        onToolStart: (event) => {
+          if (tokenStreamStarted) {
+            process.stdout.write('\n');
+            tokenStreamStarted = false;
+          }
+          const argsPreview = JSON.stringify(event.args || {});
+          const shortArgs = argsPreview.length > 55 ? argsPreview.slice(0, 52) + '…' : argsPreview;
+          spinner.start('Running ' + event.name + ' · ' + shortArgs, 'working');
+        },
+        onToolResult: (event) => {
+          const outStr = String(event.output || '');
+          const snippet = outStr.length > 85
+            ? outStr.slice(0, 85).replace(/\r?\n/g, ' ') + '…'
+            : outStr.replace(/\r?\n/g, ' ');
+          spinner.succeed(event.name + ' completed · ' + (snippet || '(success)'));
+        },
+        onPermission: async (event) => {
+          spinner.stop(true);
+
+          if (autoApprove) {
+            await client.answerPermission(event.id, true);
+            return;
+          }
+
+          renderSecurityPrompt({
+            tool: event.tool,
+            args: event.args,
+            reason: event.reason
+          });
+
+          const ans = await promptWithAutocomplete({
+            header: '',
+            arrow: '\n  ' + c.bold + 'Authorize execution? (y/N): ' + c.reset,
+            onInterrupt: requestInterrupt
+          });
+
+          if (interruptRequested) return;
+          const allow = ans.trim().toLowerCase() === 'y' || ans.trim().toLowerCase() === 'yes';
+          if (allow) {
+            console.log('  ' + c.green + '✔ Action authorized.' + c.reset + '\n');
+          } else {
+            console.log('  ' + c.red + '✖ Action denied by user.' + c.reset + '\n');
+          }
+          await client.answerPermission(event.id, allow);
+        },
+        onDone: (doneData) => {
+          spinner.stop(true);
+          if (doneData.reason === 'aborted') {
+            showInterrupted();
+            return;
+          }
+          if (tokenStreamStarted) {
+            process.stdout.write('\n');
+            tokenStreamStarted = false;
+          }
+          const duration = ((Date.now() - turnStartTime) / 1000).toFixed(1);
+          const completedPose = getMascotPose('success');
+          if (doneData.usage) {
+            const usage = doneData.usage;
+            const promptFmt = (usage.prompt_tokens || 0).toLocaleString();
+            const compFmt = (usage.completion_tokens || 0).toLocaleString();
+            const totalFmt = (usage.total_tokens || 0).toLocaleString();
+            console.log('  ' + c.green + '(' + completedPose.face + ') ✓' + c.reset + ' ' +
+              c.cyan + totalFmt + ' tokens' + c.reset + ' ' +
+              c.dim + '(' + promptFmt + ' in / ' + compFmt + ' out) · ' + duration + 's' + c.reset + '\n');
+          } else {
+            console.log('  ' + c.green + '(' + completedPose.face + ') ✓' + c.reset +
+              ' ' + c.dim + 'Turn completed · ' + duration + 's' + c.reset + '\n');
+          }
+        },
+        onError: (errData) => {
+          if (interruptRequested || errData.name === 'AbortError') {
+            showInterrupted();
+            return;
+          }
+          spinner.fail('Execution error: ' + errData.message);
+          console.log('');
+        }
+      });
+    } catch (error) {
+      if (interruptRequested || error.name === 'AbortError') {
+        showInterrupted();
+      } else {
+        spinner.fail('Execution failed: ' + error.message);
+        throw error;
+      }
+    } finally {
+      if (canCaptureInterrupt) {
+        process.stdin.removeListener('keypress', onTurnKeypress);
+        if (!wasRaw && process.stdin.isRaw) process.stdin.setRawMode(false);
+      }
+      spinner.stop(false);
+    }
+
+    // Keep the post-turn checkpoint even after an interrupt so completed file
+    // changes made before the stop request remain recoverable.
     if (client.sessionData.mode === 'build') {
       await snapshotManager.createCheckpoint('after-turn');
     }
