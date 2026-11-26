@@ -37,10 +37,10 @@ test('startup animation writes real terminal control sequences and restores the 
   });
 
   assert.equal(shown, true);
-  assert.equal(writes[0], '\\x1b[?25l');
-  assert.ok(writes.some(value => value.includes('\\r\\x1b[K')));
-  assert.ok(writes.at(-2).endsWith('\\n'));
-  assert.equal(writes.at(-1), '\\x1b[?25h');
+  assert.equal(writes[0], '\x1b[?25l');
+  assert.ok(writes.some(value => value.includes('\r\x1b[K')));
+  assert.ok(writes.at(-2).endsWith('\n'));
+  assert.equal(writes.at(-1), '\x1b[?25h');
 });
 
 test('startup animation is skipped for non-interactive output', async () => {
