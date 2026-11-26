@@ -981,27 +981,27 @@ async function runInteractive(parsed) {
       });
       if (confirmation !== 0) continue;
 
-      console.log(`\\n  Updating NexusCode v${CURRENT_VERSION} from GitHub main...\\n`);
+      console.log(`\n  Updating NexusCode v${CURRENT_VERSION} from GitHub main...\n`);
       try {
         const result = await installLatestFromGitHub();
         if (result.code === 0) {
-          console.log(`\\n  ${c.green}✔ Update installed successfully.${c.reset}`);
+          console.log(`\n  ${c.green}✔ Update installed successfully.${c.reset}`);
           console.log(isSource
-            ? '  This source checkout and its dependencies are updated. Restart with npm start.\\n'
-            : '  The global installation is updated. Restart NexusCode to load the new version.\\n');
+            ? '  This source checkout and its dependencies are updated. Restart with npm start.\n'
+            : '  The global installation is updated. Restart NexusCode to load the new version.\n');
         } else {
           const failedAt = result.stage === 'git-pull'
             ? 'Git pull'
             : result.stage === 'dependencies'
               ? 'Dependency installation'
               : 'Global installation';
-          console.log(`\\n  ${c.red}✖ ${failedAt} failed (exit code ${result.code}${result.signal ? ', signal ' + result.signal : ''}).${c.reset}`);
+          console.log(`\n  ${c.red}✖ ${failedAt} failed (exit code ${result.code}${result.signal ? ', signal ' + result.signal : ''}).${c.reset}`);
           console.log(isSource
-            ? '  Check your local changes and Git output, then retry /update.\\n'
-            : '  Check the npm output above, then retry /update.\\n');
+            ? '  Check your local changes and Git output, then retry /update.\n'
+            : '  Check the npm output above, then retry /update.\n');
         }
       } catch (error) {
-        console.log(`\\n  ${c.red}✖ Could not start the update: ${error.message}${c.reset}\\n`);
+        console.log(`\n  ${c.red}✖ Could not start the update: ${error.message}${c.reset}\n`);
       }
       continue;
     }
