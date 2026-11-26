@@ -103,8 +103,8 @@ export class Spinner {
       const label = clipTerminalText(this.text, Math.max(12, columns - 28));
       const faceColor = this.mood === 'error' ? c.rose : this.mood === 'success' ? c.green : c.brand;
       const mascot = faceColor + '(' + pose.face + ')' + c.reset + ' ' + c.amber + pose.sparkle + c.reset;
-      const line = `\\r  ${mascot}  ${c.bold}${label}${c.reset} ${c.dim}(${elapsed}s)${c.reset}`;
-      process.stdout.write(line + '\\x1b[K');
+      const line = `\r  ${mascot}  ${c.bold}${label}${c.reset} ${c.dim}(${elapsed}s)${c.reset}`;
+      process.stdout.write(line + '\x1b[K');
       this.frameIndex++;
     }, 80);
   }
@@ -167,7 +167,7 @@ export async function renderStartupAnimation({
     { mood: 'success', frame: 0, label: 'Nexus is ready' }
   ];
 
-  output.write('\\x1b[?25l');
+  output.write('\x1b[?25l');
   try {
     for (let index = 0; index < stages.length; index++) {
       const stage = stages[index];
@@ -178,14 +178,14 @@ export async function renderStartupAnimation({
         '  ' + c.brand + mascot[1] + c.reset + '    ' + c.dim + stage.label + c.reset,
         '  ' + c.brand + mascot[2] + c.reset
       ];
-      if (index === 0) output.write('\\n');
-      else output.write('\\x1b[4A');
-      output.write(lines.map(line => '\\r\\x1b[K' + line).join('\\n'));
+      if (index === 0) output.write('\n');
+      else output.write('\x1b[4A');
+      output.write(lines.map(line => '\r\x1b[K' + line).join('\n'));
       await sleep(intervalMs);
     }
-    output.write('\\n\\n');
+    output.write('\n\n');
   } finally {
-    output.write('\\x1b[?25h');
+    output.write('\x1b[?25h');
   }
   return true;
 }
@@ -288,7 +288,7 @@ export function renderBanner({ sessionId, mode, model, gitBranch = 'clean' }) {
     console.log('  ' + c.green + '● ONLINE' + c.reset + '  ' + c.dim + modeLabel + c.reset);
   }
 
-  console.log('\\n  ' + c.muted + '─'.repeat(width) + c.reset);
+  console.log('\n  ' + c.muted + '─'.repeat(width) + c.reset);
   const row = (label, value) => {
     const key = String(label).toUpperCase().padEnd(10, ' ');
     const content = clipTerminalText(value, width - 13);
@@ -298,8 +298,8 @@ export function renderBanner({ sessionId, mode, model, gitBranch = 'clean' }) {
   row('WORKSPACE', project + '  ·  BRANCH ' + (gitBranch || 'clean'));
   row('SESSION', shortSession + '  ·  MODE ' + modeLabel);
   console.log('  ' + c.muted + '─'.repeat(width) + c.reset);
-  console.log('\\n  ' + c.brightWhite + c.bold + 'Ready when you are.' + c.reset);
-  console.log('  ' + c.dim + 'Describe a task or type / to browse commands.' + c.reset + '\\n');
+  console.log('\n  ' + c.brightWhite + c.bold + 'Ready when you are.' + c.reset);
+  console.log('  ' + c.dim + 'Describe a task or type / to browse commands.' + c.reset + '\n');
 }
 /**
  * Build a compact status rail directly above the interactive prompt.
