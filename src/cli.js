@@ -439,7 +439,8 @@ async function runInteractive(parsed) {
         process.stdout.write('\n');
         tokenStreamStarted = false;
       }
-      console.log('  ' + c.amber + '( •̀_•́ ) Turn interrupted. No further model steps will run.' + c.reset + '\n');
+      const pose = getMascotPose('interrupted');
+      console.log('  ' + c.amber + 'Nexi (' + pose.face + ') ' + pose.sparkle + '  Turn interrupted.' + c.reset + '\n');
     };
 
     const requestAbort = () => {
@@ -484,6 +485,7 @@ async function runInteractive(parsed) {
         onAccepted: () => {
           messageAccepted = true;
           if (interruptRequested) return requestAbort();
+          spinner.update('Nexi is composing a response...', 'typing');
         },
         onInterrupt: () => {
           if (interruptRequested) spinner.update('Waiting for the active operation to stop…');
@@ -492,7 +494,7 @@ async function runInteractive(parsed) {
           if (interruptRequested) return;
           if (!tokenStreamStarted) {
             spinner.stop(true);
-            const pose = getMascotPose('success');
+            const pose = getMascotPose('typing', 1);
             console.log('\n  ' + c.brand + '✦' + c.reset + ' ' + c.bold + c.brightWhite + 'Nexi' + c.reset + ' ' + c.magenta + '(' + pose.face + ')' + c.reset + ' ' + c.dim + '›' + c.reset + '\n');
             tokenStreamStarted = true;
           }
