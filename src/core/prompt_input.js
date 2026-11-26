@@ -4,6 +4,7 @@ import { c, stripAnsi } from './ui.js';
 export const COMMANDS_REGISTRY = [
   { cmd: '/plan', cat: 'Mode', desc: 'Read-only mode (block file modifications)', needsArg: false },
   { cmd: '/build', cat: 'Mode', desc: 'Full execution mode (write/edit/bash enabled)', needsArg: false },
+  { cmd: '/auto', cat: 'Mode', desc: 'Automatically choose a safe route for each task', needsArg: false },
   { cmd: '/diff', cat: 'Git', desc: 'Show workspace git diff vs snapshot/checkpoint', needsArg: false },
   { cmd: '/undo', cat: 'Git', desc: 'Revert last git step to previous checkpoint', needsArg: false },
   { cmd: '/redo', cat: 'Git', desc: 'Re-apply reverted git checkpoint', needsArg: false },
