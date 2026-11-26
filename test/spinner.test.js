@@ -58,11 +58,11 @@ test('startup animation writes real terminal control sequences and restores the 
   });
 
   assert.equal(shown, true);
-  assert.ok(writes.some(value => value.includes('NEXUSCODE')));
-  assert.ok(writes.some(value => value.includes('Waking up your companion')));
-  assert.ok(writes.some(value => value.includes('\x1b[4A')));
+  assert.ok(writes.some(value => value.includes('NEXI')));
+  assert.ok(writes.some(value => value.includes('Waking up')));
+  assert.equal(writes.filter(value => value.includes('\r\x1b[2K')).length, 3);
+  assert.ok(!writes.some(value => value.includes('\x1b[4A')), 'animation must not move the cursor across multiple rows');
   assert.equal(writes[0], '\x1b[?25l');
-  assert.ok(writes.some(value => value.includes('\r\x1b[K')));
   assert.ok(writes.at(-2).endsWith('\n'));
   assert.equal(writes.at(-1), '\x1b[?25h');
 });
