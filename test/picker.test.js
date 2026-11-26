@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildHintLines, filterPickerOptions, formatPickerOption, getPickerWindow } from '../src/core/prompt_input.js';
-import { renderBanner, renderSessionPrompt } from '../src/core/ui.js';
+import { renderBanner, renderMascot, renderSessionPrompt } from '../src/core/ui.js';
 import { stripAnsi } from '../src/core/ui.js';
 
 test('startup banner no longer uses the legacy framed panel', () => {
@@ -24,6 +24,8 @@ test('startup banner no longer uses the legacy framed panel', () => {
   assert.ok(rendered.includes('default-gateway/Elaina-Free'));
   assert.match(rendered, /WORKSPACE/);
   assert.match(rendered, /Ready when you are/);
+  assert.match(rendered, /•ᴗ•/);
+  assert.equal(renderMascot('idle').length, 3);
   assert.doesNotMatch(rendered, /╭|╰|│/);
 });
 
