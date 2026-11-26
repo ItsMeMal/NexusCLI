@@ -932,25 +932,72 @@ async function runInteractive(parsed) {
             protocol: provider.protocol,
             authFlow: 'oauth2'
           });
-          console.log('\n  Opening your browser for Mallss Nexus Route sign-in...');
-          const account = await connectMallssNexusRoute({ providerId: provider.id });
-          let models = [];
-          try { models = await listProviderModels(provider.id); } catch {}
-          if (models.length) {
-            addProvider({
-              id: provider.id,
-              label: provider.label,
-              baseUrl: provider.baseUrl,
-              protocol: provider.protocol,
-              authFlow: 'oauth2',
-              defaultModel: models[0].model
+          const oauthController = new AbortController();
+          const canCancelOAuth = Boolean(process.stdin.isTTY && process.stdout.isTTY);
+          const oauthWasRaw = canCancelOAuth ? Boolean(process.stdin.isRaw) : false;
+          let oauthRawEnabled = false;
+          const onOAuthKeypress = (_str, key = {}) => {
+            if (key.ctrl && key.name === 'c' && !oauthController.signal.aborted) {
+              oauthController.abort();
+              process.stdout.write('\n  ' + c.amber + 'Cancelling browser sign-in...' + c.reset + '\n');
+            }
+          };
+
+          try {
+            if (canCancelOAuth) {
+              readline.emitKeypressEvents(process.stdin);
+              if (!oauthWasRaw) {
+                process.stdin.setRawMode(true);
+                oauthRawEnabled = true;
+              }
+              process.stdin.resume();
+              process.stdin.on('keypress', onOAuthKeypress);
+            }
+
+            console.log('\n  Preparing Mallss Nexus Route authorization...');
+            const account = await connectMallssNexusRoute({
+              providerId: provider.id,
+              signal: oauthController.signal,
+              onStatus: ({ opened, authorizeUrl }) => {
+                console.log(opened
+                  ? '\n  ' + c.green + 'Browser opened.' + c.reset + ' Complete sign-in; NexusCode is waiting for the callback.'
+                  : '\n  ' + c.yellow + 'Could not open the browser automatically.' + c.reset + ' Open this URL manually:');
+                console.log('\n  ' + c.cyan + authorizeUrl + c.reset);
+                if (canCancelOAuth) {
+                  console.log('\n  ' + c.dim + 'Press Ctrl+C to cancel sign-in and return to NexusCode.' + c.reset + '\n');
+                } else {
+                  console.log('\n  ' + c.dim + 'Return to this terminal after authorizing in the browser.' + c.reset + '\n');
+                }
+              }
             });
+
+            let models = [];
+            try { models = await listProviderModels(provider.id); } catch {}
+            if (models.length) {
+              addProvider({
+                id: provider.id,
+                label: provider.label,
+                baseUrl: provider.baseUrl,
+                protocol: provider.protocol,
+                authFlow: 'oauth2',
+                defaultModel: models[0].model
+              });
+            }
+            console.log('\n  ' + c.green + 'Connected to ' + provider.label + c.reset +
+              (account?.email ? ' as ' + c.cyan + account.email + c.reset : '') + '.');
+            console.log('  ' + (models.length ? models.length + ' models available. Use /models to choose one.' : 'OAuth connected. Use /models to refresh the model list.') + '\n');
+          } catch (error) {
+            if (error?.name === 'AbortError' || oauthController.signal.aborted) {
+              console.log('\n  ' + c.amber + 'OAuth sign-in cancelled. You are back in NexusCode.' + c.reset + '\n');
+            } else {
+              console.log('\n  ' + c.red + 'OAuth connection failed: ' + error.message + c.reset + '\n');
+            }
+          } finally {
+            if (canCancelOAuth) {
+              process.stdin.removeListener('keypress', onOAuthKeypress);
+              if (oauthRawEnabled && process.stdin.isRaw) process.stdin.setRawMode(false);
+            }
           }
-          console.log('\n  ' + c.green + 'Connected to ' + provider.label + c.reset +
-            (account?.email ? ' as ' + c.cyan + account.email + c.reset : '') + '.');
-          console.log('  ' + (models.length ? models.length + ' models available. Use /models to choose one.' : 'OAuth connected. Use /models to refresh the model list.') + '\n');
-        } catch (error) {
-          console.log('\n  ' + c.red + 'OAuth connection failed: ' + error.message + c.reset + '\n');
         }
         continue;
       }
