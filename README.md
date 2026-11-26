@@ -148,12 +148,12 @@ Use `/plan` for read-only work or `/build` when you want NexusCode to make chang
 
 Run `/connect` (or `/provider`) to open the searchable provider catalog. Select a provider and follow its connection flow.
 
-### Mallss Nexus Route — browser OAuth
+### NexusCode — browser OAuth (Mallss Nexus Route)
 
-Select **Mallss Nexus Route** in the provider catalog. NexusCode will:
+Select **NexusCode** in the provider catalog. It connects to your Mallss Nexus Route gateway using browser authorization. NexusCode will:
 
 1. Start a temporary callback listener on `127.0.0.1`.
-2. Open the Mallss Nexus Route sign-in and authorization page in your browser.
+2. Open the NexusCode sign-in and authorization page in your browser.
 3. Return an authorization code to the local callback.
 4. Exchange the code using OAuth 2.0 Authorization Code with PKCE.
 5. Store the access and refresh tokens in your local NexusCode profile.
