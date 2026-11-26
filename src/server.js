@@ -9,6 +9,7 @@ import { SessionSnapshotManager } from './core/snapshot.js';
 import { loadEnv } from './core/config.js';
 import { getDefaultModelSelection } from './core/providers/index.js';
 import { estimateMessagesTokens, compactContextIfNeeded } from './core/context.js';
+import { isExecutionMode, resolveAutoMode } from './core/mode.js';
 
 export function createNexusServer(options = {}) {
   const workingDir = options.workingDir || process.cwd();
@@ -121,6 +122,10 @@ export function createNexusServer(options = {}) {
       if (req.method === 'POST' && pathname === '/session') {
         const body = await readJsonBody(req);
         const mode = body.mode || 'build';
+        if (!isExecutionMode(mode)) {
+          sendJson(res, 400, { error: 'mode must be plan, build, or auto.' });
+          return;
+        }
         const model = body.model || getDefaultModelSelection() || process.env.MODEL || '';
 
         const session = sessionManager.createSession({
@@ -170,8 +175,8 @@ export function createNexusServer(options = {}) {
         }
 
         const body = await readJsonBody(req);
-        if (body.mode !== undefined && !['plan', 'build'].includes(body.mode)) {
-          sendJson(res, 400, { error: 'mode must be "plan" or "build".' });
+        if (body.mode !== undefined && !isExecutionMode(body.mode)) {
+          sendJson(res, 400, { error: 'mode must be "plan", "build", or "auto".' });
           return;
         }
         if (body.model !== undefined && (typeof body.model !== 'string' || !body.model.trim())) {
@@ -181,7 +186,12 @@ export function createNexusServer(options = {}) {
 
         try {
           const session = await sessionManager.loadSession(sessionId);
-          if (body.mode !== undefined) session.mode = body.mode;
+          if (body.mode !== undefined) {
+            session.mode = body.mode;
+            if (session.messages[0]?.role === 'system') {
+              session.messages[0].content = buildSystemPrompt({ workingDir, mode: body.mode });
+            }
+          }
           if (body.model !== undefined) session.model = body.model.trim();
           await sessionManager.saveSession(session);
           sendJson(res, 200, { id: session.id, mode: session.mode, model: session.model });
@@ -245,6 +255,7 @@ export function createNexusServer(options = {}) {
           return;
         }
 
+        const taskRoute = resolveAutoMode(session.mode, content);
         session.messages.push({ role: 'user', content });
         await sessionManager.saveSession(session);
 
@@ -257,6 +268,14 @@ export function createNexusServer(options = {}) {
           sessionId,
           status: 'running'
         });
+        if (session.mode === 'auto') {
+          broadcastEvent(sessionId, {
+            type: 'mode.resolved',
+            requestedMode: 'auto',
+            executionMode: taskRoute.executionMode,
+            reason: taskRoute.reason
+          });
+        }
 
         // Run agent loop asynchronously, broadcasting events to SSE
         const runPromise = (async () => {
@@ -268,7 +287,9 @@ export function createNexusServer(options = {}) {
               ctx: {
                 cwd: workingDir,
                 pluginManager: extensionManager.plugins,
-                mode: session.mode,
+                mode: taskRoute.executionMode,
+                requestedMode: session.mode,
+                autoModeReason: taskRoute.reason,
                 session,
                 sessionManager,
                 snapshotManager,
