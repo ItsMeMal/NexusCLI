@@ -13,7 +13,7 @@ export class Session {
     messages = []
   } = {}) {
     this.id = id || `ses_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    this.mode = mode; // 'build' | 'plan'
+    this.mode = mode; // 'build' | 'plan' | 'auto'
     this.model = model;
     this.createdAt = createdAt;
     this.updatedAt = updatedAt;
