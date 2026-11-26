@@ -2,13 +2,47 @@ import { exec } from 'node:child_process';
 
 function killProcessTree(pid) {
   if (!pid) return;
-  try {
-    if (process.platform === 'win32') {
-      exec(`taskkill /pid ${pid} /T /F`, () => {});
-    } else {
-      try { process.kill(-pid, 'SIGKILL'); } catch { process.kill(pid, 'SIGKILL'); }
+
+  if (process.platform === 'win32') {
+    exec('taskkill /pid ' + pid + ' /T /F', () => {});
+    return;
+  }
+
+  // Find descendants as well as the shell process. Killing only the shell can
+  // leave grandchildren holding stdout/stderr open, so exec() never settles.
+  exec('ps -eo pid=,ppid=', (error, stdout) => {
+    if (!error && stdout) {
+      const children = new Map();
+      for (const line of stdout.trim().split(/\r?\n/)) {
+        const [rawPid, rawParent] = line.trim().split(/\s+/);
+        const childPid = Number(rawPid);
+        const parentPid = Number(rawParent);
+        if (!Number.isInteger(childPid) || !Number.isInteger(parentPid)) continue;
+        const entries = children.get(parentPid) || [];
+        entries.push(childPid);
+        children.set(parentPid, entries);
+      }
+
+      const descendants = [];
+      const visit = (parentPid) => {
+        for (const childPid of children.get(parentPid) || []) {
+          visit(childPid);
+          descendants.push(childPid);
+        }
+      };
+      visit(pid);
+      for (const childPid of descendants) {
+        try { process.kill(childPid, 'SIGKILL'); } catch {}
+      }
     }
-  } catch {}
+
+    // Also kill the process group when this command was started detached.
+    try {
+      process.kill(-pid, 'SIGKILL');
+    } catch {
+      try { process.kill(pid, 'SIGKILL'); } catch {}
+    }
+  });
 }
 
 export async function isDockerAvailable() {
