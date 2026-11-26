@@ -467,7 +467,10 @@ describe('Mallss Nexus Route OAuth integration', () => {
       assert.doesNotMatch(metadata, /mnr-oauth/);
       assert.match(credentials, /mnr-oauth-access-expired/);
       assert.equal(getOAuthCredential(providerId).refreshToken, oldRefresh);
-      assert.equal(getProviderPickerCatalog().find(item => item.id === providerId)?.connected, true);
+      const nexuscodeProvider = getProviderPickerCatalog().find(item => item.id === providerId);
+      assert.equal(nexuscodeProvider?.connected, true);
+      assert.equal(nexuscodeProvider?.label, 'NexusCode');
+      assert.equal(nexuscodeProvider?.authFlow, 'oauth2');
       assert.equal(parseModelConfig(providerId + '/Nexus-Free').authFlow, 'oauth2');
 
       let refreshCalls = 0;
