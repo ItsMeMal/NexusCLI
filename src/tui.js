@@ -501,7 +501,7 @@ function terminalDisplayWidth(value) {
 }
 
 function clipTerminalText(value, maxWidth) {
-  const text = String(value ?? '').replace(/[\\r\\n\\t]+/g, ' ').replace(/\\s+/g, ' ').trim();
+  const text = String(value ?? '').replace(/[\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim();
   const width = Math.max(0, Number(maxWidth) || 0);
   if (!width) return '';
   if (terminalDisplayWidth(text) <= width) return text;
@@ -536,10 +536,13 @@ function ProviderPalette({ providers, selectedIndex, query = '', columns = 80, m
     const absoluteIndex = viewport.start + visibleIndex;
     const selected = absoluteIndex === viewport.selectedIndex;
     const status = provider.authFlow === 'oauth2'
-      ? (provider.connected ? 'OAUTH CONNECTED' : 'OAUTH SIGN-IN')
-      : (provider.connected ? 'CONNECTED' : (provider.id === '__custom__' ? 'ADD ENDPOINT' : 'SETUP'));
+      ? (provider.connected ? 'OAUTH OK' : 'OAUTH')
+      : (provider.connected ? 'CONNECTED' : (provider.id === '__custom__' ? 'CUSTOM' : 'SETUP'));
     const statusColor = provider.connected ? 'green' : 'yellow';
-    const labelWidth = Math.max(8, lineWidth - terminalDisplayWidth(status) - 4);
+    const activeTag = provider.active ? 'ACTIVE' : '';
+    const labelWidth = Math.max(4,
+      lineWidth - terminalDisplayWidth(status) - terminalDisplayWidth(activeTag) - 4
+    );
     const label = clipTerminalText((selected ? '❯ ' : '  ') + provider.label, labelWidth);
     const detail = provider.baseUrl || 'Add an OpenAI-compatible endpoint';
 
@@ -556,8 +559,8 @@ function ProviderPalette({ providers, selectedIndex, query = '', columns = 80, m
         }, label),
         createElement(Spacer),
         createElement(Text, { color: statusColor, bold: true }, status),
-        provider.active
-          ? createElement(Text, { color: 'green', bold: true }, ' ACTIVE')
+        activeTag
+          ? createElement(Text, { color: 'green', bold: true }, ' ' + activeTag)
           : null
       ),
       createElement(Text, { color: 'gray', dimColor: true },
@@ -579,10 +582,11 @@ function ProviderPalette({ providers, selectedIndex, query = '', columns = 80, m
     createElement(Box, { flexDirection: 'row' },
       createElement(Text, { color: 'magenta', bold: true }, 'CONNECT PROVIDER'),
       createElement(Spacer),
-      createElement(Text, { color: 'gray', dimColor: true }, '↑/↓ • search • Enter • Esc')
+      createElement(Text, { color: 'gray', dimColor: true },
+        (Number(columns) || 80) < 68 ? '↑↓ Enter Esc' : '↑/↓ • search • Enter • Esc')
     ),
     createElement(Text, { color: 'gray' },
-      '  Search: ' + (query || 'all supported providers')),
+      '  Search: ' + clipTerminalText(query || 'all supported providers', lineWidth - 9)),
     viewport.hasAbove
       ? createElement(Text, { color: 'gray', dimColor: true },
           '  … ' + viewport.start + ' providers above')
@@ -643,10 +647,11 @@ function ModelPalette({ models, selectedIndex, query = '', activeModel = '', col
     createElement(Box, { flexDirection: 'row' },
       createElement(Text, { color: 'cyan', bold: true }, 'SELECT MODEL · ' + models.length),
       createElement(Spacer),
-      createElement(Text, { color: 'gray', dimColor: true }, '↑/↓ • search • Enter • Esc')
+      createElement(Text, { color: 'gray', dimColor: true },
+        (Number(columns) || 80) < 68 ? '↑↓ Enter Esc' : '↑/↓ • search • Enter • Esc')
     ),
     createElement(Text, { color: 'gray' },
-      '  Search: ' + (query || 'all connected models')),
+      '  Search: ' + clipTerminalText(query || 'all connected models', lineWidth - 9)),
     viewport.hasAbove
       ? createElement(Text, { color: 'gray', dimColor: true },
           '  … ' + viewport.start + ' models above')
@@ -1422,7 +1427,7 @@ function NexusTUIApp({ client, snapshotManager }) {
                 (models.length
                   ? models.length + ' models discovered. Use /models to select one.'
                   : 'OAuth is connected. Use /models to refresh the model list.' +
-                    (discoveryError ? '\\nModel discovery: ' + discoveryError : ''))
+                    (discoveryError ? '\nModel discovery: ' + discoveryError : ''))
               }]);
             } catch (error) {
               setMessages(prev => [...prev, { role: 'assistant', content:
