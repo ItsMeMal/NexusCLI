@@ -74,6 +74,44 @@ describe('Server: REST and SSE Architecture', () => {
     assert.ok(found);
   });
 
+  test('supports Auto mode in new and existing sessions', async () => {
+    const createRes = await fetch(`${serverUrl}/session`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${testToken}`
+      },
+      body: JSON.stringify({ mode: 'auto', model: 'test-model' })
+    });
+
+    assert.equal(createRes.status, 201);
+    const created = await createRes.json();
+    assert.equal(created.mode, 'auto');
+
+    const detailRes = await fetch(`${serverUrl}/session/${created.id}`, {
+      headers: { 'Authorization': `Bearer ${testToken}` }
+    });
+    const detail = await detailRes.json();
+    assert.match(detail.messages[0].content, /CURRENT MODE: AUTO/);
+
+    const patchRes = await fetch(`${serverUrl}/session/${created.id}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${testToken}`
+      },
+      body: JSON.stringify({ mode: 'plan' })
+    });
+    assert.equal(patchRes.status, 200);
+    const patched = await patchRes.json();
+    assert.equal(patched.mode, 'plan');
+
+    const updatedDetail = await fetch(`${serverUrl}/session/${created.id}`, {
+      headers: { 'Authorization': `Bearer ${testToken}` }
+    }).then(response => response.json());
+    assert.match(updatedDetail.messages[0].content, /CURRENT MODE: PLAN/);
+  });
+
   test('GET /session/:id/events streams SSE events from POST /session/:id/message', async () => {
     // 1. Create a session
     const createRes = await fetch(`${serverUrl}/session`, {
