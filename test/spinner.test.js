@@ -20,7 +20,7 @@ function captureStdout(fn) {
   return writes;
 }
 
-test('Nexus mascot has distinct moods and a stable three-line shape', () => {
+test('Nexi mascot has distinct moods and a stable four-line shape', () => {
   const idle = getMascotPose('idle', 0);
   const working = getMascotPose('working', 0);
   const typing = getMascotPose('typing', 0);
@@ -33,8 +33,8 @@ test('Nexus mascot has distinct moods and a stable three-line shape', () => {
   assert.equal(interrupted.sparkle, 'Ⅱ');
   assert.equal(success.sparkle, '✓');
   assert.equal(error.sparkle, '!');
-  assert.equal(renderMascot('idle').length, 3);
-  assert.equal(renderMascot('working').length, 3);
+  assert.equal(renderMascot('idle').length, 4);
+  assert.equal(renderMascot('working').length, 4);
   assert.notDeepEqual(renderMascot('idle', 0), renderMascot('idle', 1));
 });
 
