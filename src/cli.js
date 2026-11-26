@@ -19,6 +19,8 @@ import {
   Spinner,
   badge,
   renderBanner,
+  renderStartupAnimation,
+  renderUpdateNotice,
   renderCommandList,
   renderDoctorReport,
   renderCostReport,
@@ -27,7 +29,7 @@ import {
 import { promptWithAutocomplete, promptSelect, promptText, promptSecret, COMMANDS_REGISTRY } from './core/prompt_input.js';
 import { addProvider, addLocalProvider, connectProvider, disconnectProvider, getDefaultModelSelection, getProviderCatalog, getProviderPickerCatalog, listAllModels, listProviderModels, removeProvider } from './core/providers/index.js';
 import { connectMallssNexusRoute, revokeOAuthProvider } from './core/providers/oauth.js';
-import { CURRENT_VERSION, installLatestFromGitHub } from './core/updater.js';
+import { CURRENT_VERSION, IS_SOURCE_CHECKOUT, checkForUpdates, installLatestFromGitHub } from './core/updater.js';
 
 function loadEnv() {
   const envPath = path.resolve(process.cwd(), '.env');
@@ -360,6 +362,7 @@ async function runNonInteractive(parsed) {
 // --- Interactive Mode with Real-Time Dropdown Palette ---
 
 async function runInteractive(parsed) {
+  const updateCheckPromise = parsed.prompt ? Promise.resolve(null) : checkForUpdates();
   let localServer = null;
   let serverUrl = process.env.NEXUS_SERVER_URL;
   const token = process.env.NEXUS_SERVER_TOKEN || null;
@@ -485,6 +488,16 @@ async function runInteractive(parsed) {
     }
     return;
   }
+
+  // Check for a newer version while the local runtime is starting.
+  // A slow network must not hold the interactive prompt open.
+  const updateInfo = await Promise.race([
+    updateCheckPromise,
+    new Promise(resolve => setTimeout(() => resolve(null), 900))
+  ]).catch(() => null);
+
+  await renderStartupAnimation();
+  renderUpdateNotice(updateInfo);
 
   // Display initial welcome banner
   const branch = await snapshotManager.getCurrentBranch();
@@ -933,14 +946,19 @@ async function runInteractive(parsed) {
       continue;
     }
 
-    // Install the latest source without changing the package's declared 0.1.2 version.
+    // Update the installation that is actually running: source checkout or global CLI.
     if (trimmed === '/update') {
+      const isSource = IS_SOURCE_CHECKOUT;
+      const updateLabel = isSource ? 'Update this source checkout' : 'Update global NexusCode';
+      const updateDescription = isSource
+        ? 'Fast-forward GitHub main, then install local dependencies'
+        : 'Install the latest NexusCode source globally from GitHub';
       const choice = await promptSelect({
         title: 'NEXUSCODE UPDATE',
         icon: '↻',
         searchable: false,
         options: [
-          { label: 'Update from GitHub main', desc: `Reinstall latest source • current v${CURRENT_VERSION}`, status: 'SOURCE' },
+          { label: updateLabel, desc: updateDescription + ' • current v' + CURRENT_VERSION, status: 'UPDATE' },
           { label: 'Cancel', desc: 'Keep this installation unchanged' }
         ],
         footer: '↑↓ navigate • Enter continue • Esc cancel'
@@ -950,25 +968,40 @@ async function runInteractive(parsed) {
       const confirmation = await promptSelect({
         title: 'CONFIRM UPDATE',
         options: [
-          { label: 'Install latest main', desc: 'Runs npm install -g from the official NexusCode repository', status: 'INSTALL' },
+          {
+            label: isSource ? 'Pull main and install dependencies' : 'Install latest GitHub main',
+            desc: isSource
+              ? 'Runs git pull --ff-only origin main, then npm install in this checkout'
+              : 'Runs npm install --global from the official NexusCode repository',
+            status: 'INSTALL'
+          },
           { label: 'Go back', desc: 'Do not change this installation' }
         ],
-        footer: 'The CLI must be restarted after the update'
+        footer: 'Restart the CLI after the update completes'
       });
       if (confirmation !== 0) continue;
 
-      console.log(`\n  Updating NexusCode v${CURRENT_VERSION} from GitHub main...\n`);
+      console.log(`\\n  Updating NexusCode v${CURRENT_VERSION} from GitHub main...\\n`);
       try {
         const result = await installLatestFromGitHub();
         if (result.code === 0) {
-          console.log(`\n  ${c.green}✔ Update installed successfully.${c.reset}`);
-          console.log('  Restart NexusCode to load the updated files. Package version remains 0.1.2.\n');
+          console.log(`\\n  ${c.green}✔ Update installed successfully.${c.reset}`);
+          console.log(isSource
+            ? '  This source checkout and its dependencies are updated. Restart with npm start.\\n'
+            : '  The global installation is updated. Restart NexusCode to load the new version.\\n');
         } else {
-          console.log(`\n  ${c.red}✖ Update failed (exit code ${result.code}${result.signal ? ', signal ' + result.signal : ''}).${c.reset}`);
-          console.log('  Check the npm output above, then retry /update.\n');
+          const failedAt = result.stage === 'git-pull'
+            ? 'Git pull'
+            : result.stage === 'dependencies'
+              ? 'Dependency installation'
+              : 'Global installation';
+          console.log(`\\n  ${c.red}✖ ${failedAt} failed (exit code ${result.code}${result.signal ? ', signal ' + result.signal : ''}).${c.reset}`);
+          console.log(isSource
+            ? '  Check your local changes and Git output, then retry /update.\\n'
+            : '  Check the npm output above, then retry /update.\\n');
         }
       } catch (error) {
-        console.log(`\n  ${c.red}✖ Could not start npm update: ${error.message}${c.reset}\n`);
+        console.log(`\\n  ${c.red}✖ Could not start the update: ${error.message}${c.reset}\\n`);
       }
       continue;
     }
