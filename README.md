@@ -426,7 +426,7 @@ The JSON result includes session information, the selected model and mode, the r
 
 In the interactive CLI, run `/update` and confirm the update. NexusCode installs the latest source from `github:ItsMeMal/NexusCode#main` through npm. Restart the CLI after installation.
 
-The updater follows the repository's `main` branch and does not change the package's declared version. The current development line remains **0.1.2**; the next package version is intentionally reserved for a later release.
+The updater follows the repository's `main` branch and does not change the package's declared version. The current package release version is **0.1.5**.
 
 A GitHub Actions example is available in [`.github/workflows/agent-review.yml`](.github/workflows/agent-review.yml).
 
