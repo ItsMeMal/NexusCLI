@@ -15,8 +15,8 @@ export default function plugin({ registerTool, hooks, workingDir }) {
     }
   });
 
-  hooks.before_tool.push(async ({ tool }) => {
-    console.error(`[plugin] before_tool: ${tool}`);
+  hooks.before_tool.push(async ({ name }) => {
+    console.error(`[plugin] before_tool: ${name}`);
   });
 
   console.error('[plugin] example plugin loaded from', workingDir);
