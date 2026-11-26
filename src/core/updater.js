@@ -87,17 +87,6 @@ export async function checkForUpdates({
   timeoutMs = 2200
 } = {}) {
   const cached = readUpdateCache(cachePath);
-  if (cached && now - cached.checkedAt < intervalMs && now >= cached.checkedAt) {
-    return {
-      currentVersion: CURRENT_VERSION,
-      latestVersion: cached.latestVersion,
-      updateAvailable: isVersionNewer(cached.latestVersion, CURRENT_VERSION),
-      checkedAt: cached.checkedAt,
-      checked: true,
-      fromCache: true
-    };
-  }
-
   if (process.env.NEXUS_DISABLE_UPDATE_CHECK === '1' || typeof fetchImpl !== 'function') {
     return {
       currentVersion: CURRENT_VERSION,
@@ -106,6 +95,17 @@ export async function checkForUpdates({
       checkedAt: cached?.checkedAt || null,
       checked: false,
       disabled: true
+    };
+  }
+
+  if (cached && now - cached.checkedAt < intervalMs && now >= cached.checkedAt) {
+    return {
+      currentVersion: CURRENT_VERSION,
+      latestVersion: cached.latestVersion,
+      updateAvailable: isVersionNewer(cached.latestVersion, CURRENT_VERSION),
+      checkedAt: cached.checkedAt,
+      checked: true,
+      fromCache: true
     };
   }
 
