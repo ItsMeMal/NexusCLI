@@ -25,6 +25,7 @@ Its architecture separates the orchestration core from its interfaces:
 
 ### General-purpose orchestration
 
+- Includes **Nexi**, an animated terminal mascot shown in the startup banner and live task feedback.
 - Handles software engineering, research, writing, analysis, planning, troubleshooting, and automation.
 - Breaks complex requests into manageable tasks and delegates independent work to specialist agents.
 - Coordinates tool execution and consolidates results into a final response.
