@@ -997,7 +997,6 @@ async function runInteractive(parsed) {
               if (oauthRawEnabled && process.stdin.isRaw) process.stdin.setRawMode(false);
             }
           }
-        }
         continue;
       }
 
