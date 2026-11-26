@@ -246,7 +246,7 @@ The main agent can delegate focused work through the `task` tool. Independent ta
 
 ## Working with plugins
 
-Plugins are loaded from `.agent/plugins/` when the local NexusCode server starts. Use `.js` or `.mjs` files (the package runs as an ES module).
+Plugins are loaded from `.agent/plugins/` when the local NexusCode server starts. Use `.js` or `.mjs` files (the package runs as an ES module). Use the `registerTool(tool)` helper provided in the plugin context to add tools; `ctx.registry` is read-only.
 
 Create `.agent/plugins/example.js`:
 
@@ -383,6 +383,8 @@ Type `/` in the interactive prompt to open the searchable command palette. Use t
 | `/export [path]` | Export the current session to standalone HTML |
 | `/doctor` | Run environment and workspace diagnostics |
 | `/update` | Install the latest source from the official GitHub `main` branch |
+
+Interactive startup checks GitHub `main` for a newer package version (cached for six hours). Set `NEXUS_DISABLE_UPDATE_CHECK=1` to disable this check. `/update` fast-forwards a source checkout and installs its dependencies, or updates a global installation from GitHub.
 | `/init` | Create starter `.agent/` configuration |
 | `/abort` | Stop the current agent task |
 | `/clear` | Clear the terminal |
