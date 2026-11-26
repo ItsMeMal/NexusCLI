@@ -154,6 +154,26 @@ describe('Individual Tools', () => {
     assert.match(res, /Command failed/);
   });
 
+  test('bash tool terminates a running command when interrupted', async () => {
+    const controller = new AbortController();
+    const startedAt = Date.now();
+    const abortTimer = setTimeout(() => controller.abort(), 150);
+
+    try {
+      const result = await bashTool.execute({
+        command: 'node -e "setTimeout(() => console.log(\'late\'), 5000)"'
+      }, {
+        abortSignal: controller.signal,
+        timeout: 10000
+      });
+
+      assert.match(result, /Command cancelled by user/i);
+      assert.ok(Date.now() - startedAt < 4000, 'command should stop promptly after abort');
+    } finally {
+      clearTimeout(abortTimer);
+    }
+  });
+
   test('grep tool finds matching lines', async () => {
     const res = await grepTool.execute({ pattern: 'NEXUSCODE', path: 'src/cli.js' });
     assert.match(res, /src\/cli\.js:\d+:/);
