@@ -97,7 +97,12 @@ export function getMascotPose(mood = 'idle', frameIndex = 0) {
 
 export function renderMascot(mood = 'idle', frameIndex = 0) {
   const pose = getMascotPose(mood, frameIndex);
-  return ['   /\\_/\\', '  ( ' + pose.face + ' )', '   > ' + pose.sparkle + ' <'];
+  return [
+    '   /\\_/\\',
+    '  ( ' + pose.face + ' )',
+    '  /| ' + pose.sparkle + ' |\\',
+    ' (_|_____|_)'
+  ];
 }
 
 /**
@@ -309,7 +314,7 @@ export function renderBanner({ sessionId, mode, model, gitBranch = 'clean' }) {
   const columns = Number(process.stdout.columns) || 80;
   const width = Math.max(24, Math.min(92, columns - 4));
   const project = path.basename(process.cwd()) || 'workspace';
-  const modeLabel = mode === 'plan' ? 'PLAN' : 'BUILD';
+  const modeLabel = String(mode || 'build').toUpperCase();
   const shortSession = sessionId && sessionId.length > 22
     ? sessionId.slice(0, 18) + '…'
     : (sessionId || 'active');
@@ -324,16 +329,22 @@ export function renderBanner({ sessionId, mode, model, gitBranch = 'clean' }) {
     );
     console.log(
       '  ' + c.brand + mascot[1] + c.reset + '    ' +
+      c.magenta + c.bold + 'NEXI' + c.reset + '  ' +
+      c.dim + 'terminal companion' + c.reset
+    );
+    console.log(
+      '  ' + c.brand + mascot[2] + c.reset + '    ' +
       c.green + '● ONLINE' + c.reset + '  ' +
       c.dim + modeLabel + c.reset
     );
     console.log(
-      '  ' + c.brand + mascot[2] + c.reset + '    ' +
+      '  ' + c.brand + mascot[3] + c.reset + '    ' +
       c.dim + project + '  ·  ' + (gitBranch || 'clean') + c.reset
     );
   } else {
     console.log('  ' + c.bold + c.brightWhite + 'NEXUSCODE' + c.reset + '  ' + c.dim + 'v' + APP_VERSION + c.reset);
     for (const line of mascot) console.log('  ' + c.brand + line + c.reset);
+    console.log('  ' + c.magenta + c.bold + 'NEXI' + c.reset + '  ' + c.dim + 'terminal companion' + c.reset);
     console.log('  ' + c.green + '● ONLINE' + c.reset + '  ' + c.dim + modeLabel + c.reset);
   }
 
@@ -355,13 +366,13 @@ export function renderBanner({ sessionId, mode, model, gitBranch = 'clean' }) {
  */
 export function renderSessionPrompt({ mode, gitBranch = 'main', model = '', columns = process.stdout.columns || 80 }) {
   const width = Math.max(24, Math.min(120, Number(columns) - 4 || 76));
-  const modeLabel = mode === 'plan' ? 'PLAN' : 'BUILD';
+  const modeLabel = String(mode || 'build').toUpperCase();
   const branchLimit = Math.max(6, Math.min(20, Math.floor(width * 0.28)));
   const branch = clipTerminalText(gitBranch || 'clean', branchLimit);
   const prefix = '  ' + modeLabel + '  ·  ' + branch + '  ·  ';
   const modelLimit = Math.max(4, width - terminalDisplayWidth(prefix));
   const modelLabel = clipTerminalText(model || 'default', modelLimit);
-  const modeColor = mode === 'plan' ? c.amber : c.teal;
+  const modeColor = mode === 'plan' ? c.amber : mode === 'auto' ? c.magenta : c.teal;
 
   return {
     header:
@@ -385,6 +396,7 @@ export function renderCommandList() {
   const leftCommands = [
     { cmd: '/plan', cat: 'MODE', desc: 'Read-only mode (block writes)' },
     { cmd: '/build', cat: 'MODE', desc: 'Full execution (write/bash)' },
+    { cmd: '/auto', cat: 'MODE', desc: 'Choose plan/build route per task' },
     { cmd: '/diff', cat: 'GIT', desc: 'Show workspace git diff' },
     { cmd: '/undo', cat: 'GIT', desc: 'Revert last git step' },
     { cmd: '/redo', cat: 'GIT', desc: 'Re-apply reverted step' },
