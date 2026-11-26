@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { CURRENT_VERSION, UPDATE_SOURCE, getUpdateCommand, installLatestFromGitHub } from '../src/core/updater.js';
 
-test('updater preserves the 0.1.2 package version and targets the repository main branch', () => {
-  assert.equal(CURRENT_VERSION, '0.1.2');
+test('updater reports the 0.1.3 package version and targets the repository main branch', () => {
+  assert.equal(CURRENT_VERSION, '0.1.3');
   assert.equal(UPDATE_SOURCE, 'github:ItsMeMal/NexusCode#main');
 
   const unix = getUpdateCommand('linux');
