@@ -172,4 +172,104 @@ describe('Server: REST and SSE Architecture', () => {
     const data = await abortRes.json();
     assert.equal(data.aborted, false); // Idle session has nothing to abort
   });
+  test('keeps an interrupted run registered until it stops', async (t) => {
+    const abortDir = path.join(tempDir, 'abort-active');
+    await fs.mkdir(abortDir, { recursive: true });
+
+    let signalStarted;
+    const started = new Promise(resolve => { signalStarted = resolve; });
+    const abortServer = createNexusServer({
+      port: 0,
+      host: '127.0.0.1',
+      token: testToken,
+      workingDir: abortDir,
+      chatFn: async (_messages, _tools, options) => {
+        signalStarted();
+        return new Promise((resolve, reject) => {
+          const abort = () => {
+            setTimeout(() => {
+              const error = new Error('Provider request aborted');
+              error.name = 'AbortError';
+              reject(error);
+            }, 250);
+          };
+          if (options.signal.aborted) abort();
+          else options.signal.addEventListener('abort', abort, { once: true });
+        });
+      }
+    });
+    const info = await abortServer.start();
+    const abortUrl = info.url;
+    t.after(async () => {
+      await abortServer.close();
+      await fs.rm(abortDir, { recursive: true, force: true });
+    });
+
+    const createRes = await fetch(abortUrl + '/session', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer ' + testToken
+      },
+      body: JSON.stringify({ mode: 'build', model: 'test-model' })
+    });
+    const { id: sessionId } = await createRes.json();
+
+    const sseRes = await fetch(abortUrl + '/session/' + sessionId + '/events', {
+      headers: { Authorization: 'Bearer ' + testToken }
+    });
+    assert.equal(sseRes.status, 200);
+
+    const messageRes = await fetch(abortUrl + '/session/' + sessionId + '/message', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer ' + testToken
+      },
+      body: JSON.stringify({ content: 'do a long task' })
+    });
+    assert.equal(messageRes.status, 202);
+    await started;
+
+    const abortRes = await fetch(abortUrl + '/session/' + sessionId + '/abort', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + testToken }
+    });
+    assert.equal(abortRes.status, 200);
+    assert.equal((await abortRes.json()).aborted, true);
+
+    const conflictingRes = await fetch(abortUrl + '/session/' + sessionId + '/message', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer ' + testToken
+      },
+      body: JSON.stringify({ content: 'do not start concurrently' })
+    });
+    assert.equal(conflictingRes.status, 409);
+
+    const reader = sseRes.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let eventName = '';
+    let doneData = null;
+
+    while (!doneData) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split(/\r?\n/);
+      buffer = lines.pop() || '';
+      for (const line of lines) {
+        if (line.startsWith('event: ')) eventName = line.slice(7).trim();
+        if (line.startsWith('data: ') && eventName === 'done') {
+          doneData = JSON.parse(line.slice(6).trim());
+          break;
+        }
+      }
+    }
+    await reader.cancel().catch(() => {});
+    assert.equal(doneData?.reason, 'aborted');
+  });
+
 });
