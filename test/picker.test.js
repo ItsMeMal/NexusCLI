@@ -26,7 +26,7 @@ test('startup banner no longer uses the legacy framed panel', () => {
   assert.match(rendered, /main/);
   assert.match(rendered, /Ready when you are/);
   assert.match(rendered, /•ᴗ•/);
-  assert.equal(renderMascot('idle').length, 3);
+  assert.equal(renderMascot('idle').length, 4);
   assert.doesNotMatch(rendered, /╭|╰|│/);
 });
 
