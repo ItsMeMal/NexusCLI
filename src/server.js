@@ -349,8 +349,13 @@ export function createNexusServer(options = {}) {
         }
 
         active.abortController.abort();
-        activeRuns.delete(sessionId);
-        broadcastEvent(sessionId, { type: 'done', reason: 'aborted' });
+        for (const [permId, pending] of pendingPermissions) {
+          if (pending.sessionId === sessionId) {
+            pendingPermissions.delete(permId);
+            pending.resolve(false);
+          }
+        }
+        broadcastEvent(sessionId, { type: 'interrupt.requested' });
 
         sendJson(res, 200, { aborted: true, sessionId });
         return;
