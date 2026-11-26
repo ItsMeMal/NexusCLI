@@ -10,7 +10,7 @@ export const PROVIDER_PRESETS = [
   { id: 'anthropic', label: 'Anthropic', baseUrl: 'https://api.anthropic.com', protocol: 'anthropic', category: 'Popular' },
   { id: 'gemini', label: 'Google Gemini', baseUrl: 'https://generativelanguage.googleapis.com', protocol: 'gemini', category: 'Popular' },
   { id: 'openrouter', label: 'OpenRouter', baseUrl: 'https://openrouter.ai/api/v1', protocol: 'openai-compatible', category: 'Popular' },
-  { id: 'mallss-nexus-route', label: 'Mallss Nexus Route', baseUrl: 'https://ai-router.mallss-nexus.sbs/v1', protocol: 'openai-compatible', category: 'AI Gateways', authFlow: 'oauth2' },
+  { id: 'mallss-nexus-route', label: 'NexusCode', baseUrl: 'https://ai-router.mallss-nexus.sbs/v1', protocol: 'openai-compatible', category: 'AI Gateways', authFlow: 'oauth2' },
   { id: 'groq', label: 'Groq', baseUrl: 'https://api.groq.com/openai/v1', protocol: 'openai-compatible', category: 'Popular' },
   { id: 'deepseek', label: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1', protocol: 'openai-compatible', category: 'Popular' },
   { id: 'mistral', label: 'Mistral AI', baseUrl: 'https://api.mistral.ai/v1', protocol: 'openai-compatible', category: 'Services' },
@@ -97,7 +97,7 @@ function normalizeProvider(provider) {
     : [];
   return {
     id,
-    label: String(provider.label || id).trim() || id,
+    label: id === 'mallss-nexus-route' ? 'NexusCode' : (String(provider.label || id).trim() || id),
     baseUrl,
     apiKeyEnv,
     protocol,
