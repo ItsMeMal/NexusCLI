@@ -1,5 +1,5 @@
 // Example plugin: registers a simple tool and a before_tool hook.
-export default function plugin({ registerTool, hooks, workingDir }) {
+export default function plugin({ registerTool, hooks }) {
   registerTool({
     name: 'plugin_echo',
     description: '[Plugin] Echo a message back with a prefix.',
@@ -19,5 +19,4 @@ export default function plugin({ registerTool, hooks, workingDir }) {
     console.error(`[plugin] before_tool: ${name}`);
   });
 
-  console.error('[plugin] example plugin loaded from', workingDir);
 }
