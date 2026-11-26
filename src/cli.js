@@ -16,6 +16,7 @@ import { isDockerAvailable } from './core/sandbox.js';
 import { defaultRegistry } from './tools/index.js';
 import {
   c,
+  getMascotPose,
   Spinner,
   badge,
   renderBanner,
@@ -398,13 +399,14 @@ async function runInteractive(parsed) {
   const executeTurn = async (userInput, autoApprove = false) => {
     let tokenStreamStarted = false;
     const turnStartTime = Date.now();
-    spinner.start('( ✧ω✧) c( つ🪄✦ Menganalisis & merumuskan solusi...');
+    spinner.start('Thinking through the task...', 'thinking');
 
     await client.sendMessage(userInput, {
       onToken: (tok) => {
         if (!tokenStreamStarted) {
           spinner.stop(true);
-          console.log(`\n  ${c.cyan}✦${c.reset} ${c.bold}${c.brightWhite}Nexus${c.reset} ${c.magenta}( ˘ᴗ˘ )🪄${c.reset} ${c.dim}›${c.reset}\n`);
+          const pose = getMascotPose('success');
+          console.log(`\n  ${c.brand}✦${c.reset} ${c.bold}${c.brightWhite}Nexi${c.reset} ${c.magenta}(${pose.face})${c.reset} ${c.dim}›${c.reset}\n`);
           tokenStreamStarted = true;
         }
         process.stdout.write(tok);
@@ -416,14 +418,14 @@ async function runInteractive(parsed) {
         }
         const argsPreview = JSON.stringify(event.args || {});
         const shortArgs = argsPreview.length > 55 ? argsPreview.slice(0, 52) + '…' : argsPreview;
-        spinner.start(`( •̀_•́ ) c( つ📦⚡ Tool: ${c.cyan}${c.bold}${event.name}${c.reset} ${c.dim}${shortArgs}${c.reset}`);
+        spinner.start(`Running ${event.name} · ${shortArgs}`, 'working');
       },
       onToolResult: (event) => {
         const outStr = String(event.output || '');
         const snippet = outStr.length > 85
           ? outStr.slice(0, 85).replace(/\r?\n/g, ' ') + '…'
           : outStr.replace(/\r?\n/g, ' ');
-        spinner.succeed(`( •̀ᴗ•́ ) c( つ📦✨ ${c.bold}${event.name}${c.reset} → ${c.dim}${snippet || '(success)'}${c.reset}`);
+        spinner.succeed(`${c.bold}${event.name}${c.reset} completed · ${c.dim}${snippet || '(success)'}${c.reset}`);
       },
       onPermission: async (event) => {
         spinner.stop(true);
@@ -458,18 +460,19 @@ async function runInteractive(parsed) {
           process.stdout.write('\n');
         }
         const duration = ((Date.now() - turnStartTime) / 1000).toFixed(1);
+        const completedPose = getMascotPose('success');
         if (doneData.usage) {
           const u = doneData.usage;
           const promptFmt = (u.prompt_tokens || 0).toLocaleString();
           const compFmt = (u.completion_tokens || 0).toLocaleString();
           const totalFmt = (u.total_tokens || 0).toLocaleString();
-          console.log(`  ${c.dim}╰─ ( ^_- )v✨ [${c.cyan}${totalFmt} tokens${c.dim} (${promptFmt} in / ${compFmt} out) • ${duration}s elapsed]${c.reset}\n`);
+          console.log(`  ${c.green}(${completedPose.face}) ✓${c.reset} ${c.cyan}${totalFmt} tokens${c.reset} ${c.dim}(${promptFmt} in / ${compFmt} out) · ${duration}s${c.reset}\n`);
         } else {
-          console.log(`  ${c.dim}╰─ ( ^_- )v✨ [Turn selesai dalam ${duration}s]${c.reset}\n`);
+          console.log(`  ${c.green}(${completedPose.face}) ✓${c.reset} ${c.dim}Turn completed · ${duration}s${c.reset}\n`);
         }
       },
       onError: (errData) => {
-        spinner.fail(`( T_T ) c( つ💔 Execution Error: ${errData.message}`);
+        spinner.fail(`Execution error: ${errData.message}`);
         console.log('');
       }
     });
