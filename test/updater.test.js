@@ -100,8 +100,8 @@ test('source checkout updater runs pull and dependency installation in sequence'
   assert.equal(result.sourceCheckout, true);
 });
 
-test('updater reports the 0.1.4 package version and targets the repository main branch', () => {
-  assert.equal(CURRENT_VERSION, '0.1.4');
+test('updater reports the 0.1.5 package version and targets the repository main branch', () => {
+  assert.equal(CURRENT_VERSION, '0.1.5');
   assert.equal(UPDATE_SOURCE, 'github:ItsMeMal/NexusCode#main');
 
   const unix = getUpdateCommand('linux');
