@@ -21,7 +21,9 @@ export function buildSystemPrompt(options = {}) {
   const mode = options.mode || 'build';
   const modeDirective = mode === 'plan'
     ? '## CURRENT MODE: PLAN (READ-ONLY)\nYou may inspect and analyze, but must not modify files or external state.'
-    : '## CURRENT MODE: EXECUTION\nYou may use relevant tools to carry out the user requested work, subject to permissions and safety checks.';
+    : mode === 'auto'
+      ? '## CURRENT MODE: AUTO\nChoose the safest useful route for every user turn. Treat questions, explanations, research, reviews, and analysis as read-only. Use the execution route only when the user clearly asks you to create, modify, run, test, configure, or otherwise perform an action. If intent is ambiguous, stay read-only and ask before side effects. Auto mode never grants permission: follow the runtime permission manager and obtain approval whenever required.'
+      : '## CURRENT MODE: EXECUTION\nYou may use relevant tools to carry out the user requested work, subject to permissions and safety checks.';
   const agents = Array.from(loadAgents(workingDir).values());
   const agentDirectory = agents.length
     ? '\n\n## AVAILABLE SPECIALISTS\n' + agents.map(agent => '- ' + agent.name + ': ' + (agent.description || 'Specialist agent')).join('\n')
