@@ -22,6 +22,7 @@ describe('Auto execution mode', () => {
     assert.equal(resolveAutoMode('auto', 'Add a mascot to the terminal.').executionMode, 'build');
     assert.equal(resolveAutoMode('auto', 'Tolong perbaiki bug login.').executionMode, 'build');
     assert.equal(resolveAutoMode('auto', 'Run the test suite.').executionMode, 'build');
+    assert.equal(resolveAutoMode('auto', 'tambah mascot dan tambah mode auto').executionMode, 'build');
   });
 
   test('an explicit read-only instruction wins over action wording', () => {
