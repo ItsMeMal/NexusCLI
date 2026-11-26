@@ -1,7 +1,39 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { filterPickerOptions, formatPickerOption, getPickerWindow } from '../src/core/prompt_input.js';
+import { buildHintLines, filterPickerOptions, formatPickerOption, getPickerWindow } from '../src/core/prompt_input.js';
+import { renderSessionPrompt } from '../src/core/ui.js';
 import { stripAnsi } from '../src/core/ui.js';
+
+test('session prompt uses a compact status rail that stays within terminal width', () => {
+  for (const columns of [40, 48, 60, 80, 120]) {
+    const frame = renderSessionPrompt({
+      mode: 'build',
+      gitBranch: 'feature/very-long-branch-name',
+      model: 'default-gateway/Elaina-Free-with-a-long-model-id',
+      columns
+    });
+    const headerLine = stripAnsi(frame.header).trim();
+    assert.ok(headerLine.length <= columns - 4, 'prompt rail should not wrap');
+    assert.match(stripAnsi(frame.arrow), /›/);
+    assert.doesNotMatch(stripAnsi(frame.header), /╭|╰|│/);
+  }
+});
+
+test('slash command suggestions are bounded to terminal height and width', () => {
+  const matches = Array.from({ length: 24 }, (_, index) => ({
+    cmd: '/command-' + index,
+    cat: index % 2 ? 'System' : 'Provider',
+    desc: 'A deliberately long command description that should be clipped to the terminal width.'
+  }));
+
+  const lines = buildHintLines('/command', matches, 12, { columns: 48, rows: 16 });
+  assert.ok(lines.length <= 12);
+  for (const line of lines) {
+    assert.ok(stripAnsi(line).length <= 46, 'suggestion line should fit terminal width');
+  }
+  assert.match(stripAnsi(lines.join('\n')), /more above/);
+  assert.match(stripAnsi(lines.join('\n')), /more below/);
+});
 
 test('picker viewport keeps the selected result visible and clamps to list bounds', () => {
   const items = Array.from({ length: 20 }, (_, index) => ({ id: 'item-' + index }));
