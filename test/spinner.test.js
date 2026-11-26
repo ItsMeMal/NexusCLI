@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Spinner } from '../src/core/ui.js';
+import { Spinner, renderStartupAnimation } from '../src/core/ui.js';
 
 /**
  * Capture every write to process.stdout while fn() runs.
@@ -19,6 +19,36 @@ function captureStdout(fn) {
   }
   return writes;
 }
+
+test('startup animation writes real terminal control sequences and restores the cursor', async () => {
+  const writes = [];
+  const output = {
+    isTTY: true,
+    write(chunk) {
+      writes.push(String(chunk));
+      return true;
+    }
+  };
+
+  const shown = await renderStartupAnimation({
+    output,
+    intervalMs: 0,
+    sleep: async () => {}
+  });
+
+  assert.equal(shown, true);
+  assert.equal(writes[0], '\\x1b[?25l');
+  assert.ok(writes.some(value => value.includes('\\r\\x1b[K')));
+  assert.ok(writes.at(-2).endsWith('\\n'));
+  assert.equal(writes.at(-1), '\\x1b[?25h');
+});
+
+test('startup animation is skipped for non-interactive output', async () => {
+  const writes = [];
+  const output = { write(chunk) { writes.push(String(chunk)); return true; } };
+  assert.equal(await renderStartupAnimation({ output, isTTY: false }), false);
+  assert.deepEqual(writes, []);
+});
 
 test('stop() after streaming must not erase the assistant response line', () => {
   const spinner = new Spinner('thinking');
