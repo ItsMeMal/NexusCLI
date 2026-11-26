@@ -41,21 +41,46 @@ const CAT_ORDER = ['Mode', 'Git', 'Model', 'Session', 'System', 'UI', 'Help'];
  * @param {number} tabCycleIdx - Indeks chip yang ter-highlight
  * @returns {Array<string>} Baris-baris hint
  */
-function buildHintLines(query, matches, tabCycleIdx) {
+export function buildHintLines(query, matches, tabCycleIdx = -1, { columns, rows } = {}) {
+  const width = Math.max(28, (Number(columns) || Number(process.stdout.columns) || 80) - 2);
+  const terminalRows = Math.max(12, Number(rows) || Number(process.stdout.rows) || 24);
+  const maxVisible = Math.max(2, Math.min(6, terminalRows - 9));
+  const selectedIndex = matches.length
+    ? (tabCycleIdx >= 0 ? tabCycleIdx % matches.length : -1)
+    : -1;
+  const start = selectedIndex < 0
+    ? 0
+    : Math.max(0, Math.min(matches.length - maxVisible, selectedIndex - Math.floor(maxVisible / 2)));
+  const end = Math.min(matches.length, start + maxVisible);
+  const visible = matches.slice(start, end);
+  const remainingAbove = start;
+  const remainingBelow = matches.length - end;
   const lines = [
-    `  ${c.cyan}${c.bold}AVAILABLE COMMANDS${c.reset} ${c.dim}• ${matches.length} match(es)${c.reset}`
+    '  ' + c.brightWhite + 'COMMANDS' + c.reset +
+    '  ' + c.dim + '/' + query.replace(/^\//, '') + '  ·  ' + matches.length + ' matches' + c.reset
   ];
 
-  matches.forEach((command, index) => {
-    const selected = tabCycleIdx >= 0 && (tabCycleIdx % matches.length) === index;
-    const prefix = selected ? `${c.cyan}${c.bold}❯${c.reset}` : ' ';
-    const name = selected
-      ? `${c.cyan}${c.bold}${command.cmd.padEnd(15)}${c.reset}`
-      : `${c.white}${command.cmd.padEnd(15)}${c.reset}`;
-    lines.push(`  ${prefix} ${c.magenta}${command.cat.padEnd(8)}${c.reset} ${name} ${c.dim}${command.desc}${c.reset}`);
+  if (remainingAbove > 0) lines.push('  ' + c.dim + '↑ ' + remainingAbove + ' more above' + c.reset);
+
+  visible.forEach((command, offset) => {
+    const index = start + offset;
+    const selected = index === selectedIndex;
+    const marker = selected ? c.teal + c.bold + '›' + c.reset : c.muted + ' ' + c.reset;
+    const category = clipPickerText(command.cat || 'Command', 8);
+    const name = clipPickerText(command.cmd, 16);
+    const fixedWidth = 2 + 1 + 1 + 8 + 2 + 16 + 2;
+    const description = clipPickerText(command.desc, Math.max(0, width - fixedWidth));
+    const nameColor = selected ? c.brightWhite + c.bold : c.white;
+    lines.push(
+      '  ' + marker + ' ' +
+      c.magenta + padPickerText(category, 8) + c.reset + '  ' +
+      nameColor + padPickerText(name, 16) + c.reset + '  ' +
+      c.dim + description + c.reset
+    );
   });
 
-  lines.push(`  ${c.cyan}✦${c.reset} ${c.dim}[↑↓] navigate • [Tab] complete • [Enter] choose • [Esc] close${c.reset}`);
+  if (remainingBelow > 0) lines.push('  ' + c.dim + '↓ ' + remainingBelow + ' more below' + c.reset);
+  lines.push('  ' + c.dim + '↑↓ move  ·  Tab complete  ·  Enter run  ·  Esc clear' + c.reset);
   return lines;
 }
 
