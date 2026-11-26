@@ -1,7 +1,7 @@
 import readline from 'node:readline';
 import fs from 'node:fs';
 
-let APP_VERSION = '0.1.2';
+let APP_VERSION = '0.1.3';
 try { APP_VERSION = JSON.parse(fs.readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version || APP_VERSION; } catch {}
 
 // ─── ANSI Styling Palette (Truecolor + High-contrast ANSI fallback) ──────────
@@ -118,6 +118,61 @@ export class Spinner {
     this.stop(true);
     console.log(`  ${c.blue}ℹ${c.reset} ${text}`);
   }
+}
+
+/**
+ * Short startup motion: a compact progress sweep, never a full-screen animation.
+ * It is skipped for piped output and can be disabled with NEXUS_NO_ANIMATION=1.
+ */
+export async function renderStartupAnimation({
+  output = process.stdout,
+  isTTY = Boolean(output.isTTY),
+  intervalMs = 90,
+  sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms))
+} = {}) {
+  if (!isTTY || process.env.NEXUS_NO_ANIMATION === '1') return false;
+
+  const frames = ['◴', '◷', '◶', '◵'];
+  const stages = [
+    { label: 'Preparing workspace', progress: 24 },
+    { label: 'Initializing agent runtime', progress: 52 },
+    { label: 'Connecting local interface', progress: 82 },
+    { label: 'Ready', progress: 100 }
+  ];
+
+  output.write('\\x1b[?25l');
+  try {
+    for (let index = 0; index < stages.length; index++) {
+      const stage = stages[index];
+      const filled = Math.round(stage.progress / 10);
+      const bar = '█'.repeat(filled) + '░'.repeat(10 - filled);
+      const glyph = index === stages.length - 1 ? '✓' : frames[index % frames.length];
+      const color = index === stages.length - 1 ? c.green : c.cyan;
+      output.write(
+        '\\r\\x1b[K  ' + color + glyph + c.reset + ' ' +
+        c.bold + 'NEXUSCODE' + c.reset + ' ' +
+        c.dim + stage.label + c.reset + ' ' +
+        color + bar + c.reset + ' ' + c.dim + stage.progress + '%' + c.reset
+      );
+      await sleep(intervalMs);
+    }
+    output.write('\\n');
+  } finally {
+    output.write('\\x1b[?25h');
+  }
+  return true;
+}
+
+/** Show a version alert without interrupting the normal prompt flow. */
+export function renderUpdateNotice(updateInfo) {
+  if (!updateInfo?.updateAvailable || !updateInfo.latestVersion) return false;
+  console.log(
+    `\\n  ${c.bgYellow}${c.black}${c.bold} UPDATE AVAILABLE ${c.reset} ` +
+    `${c.bold}NexusCode v${updateInfo.latestVersion}${c.reset} ` +
+    `${c.dim}(installed v${updateInfo.currentVersion})${c.reset}`
+  );
+  console.log(`  Run ${c.cyan}${c.bold}/update${c.reset} to install the newer version.\\n`);
+  return true;
 }
 
 /**
@@ -377,6 +432,8 @@ export default {
   stripAnsi,
   padVisual,
   renderBanner,
+  renderStartupAnimation,
+  renderUpdateNotice,
   renderCommandList,
   renderToolCard,
   renderSecurityPrompt,
