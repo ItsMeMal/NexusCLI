@@ -178,4 +178,38 @@ describe('runAgentLoop', () => {
     assert.equal(result.reason, 'max_steps_reached');
     assert.equal(result.steps, 3);
   });
+  test('returns an interrupted result when the provider aborts', async () => {
+    const controller = new AbortController();
+    const events = [];
+    let signalReady;
+    const started = new Promise(resolve => { signalReady = resolve; });
+
+    const run = runAgentLoop({
+      messages: [{ role: 'user', content: 'start a long request' }],
+      chatFn: async (_messages, _tools, options) => {
+        signalReady();
+        return new Promise((resolve, reject) => {
+          const abort = () => {
+            const error = new Error('The request was aborted.');
+            error.name = 'AbortError';
+            reject(error);
+          };
+          if (options.signal.aborted) abort();
+          else options.signal.addEventListener('abort', abort, { once: true });
+        });
+      },
+      ctx: { abortSignal: controller.signal },
+      onEvent: event => events.push(event)
+    });
+
+    await started;
+    controller.abort();
+    const result = await run;
+
+    assert.equal(result.completed, false);
+    assert.equal(result.reason, 'aborted');
+    assert.equal(events.at(-1)?.type, 'done');
+    assert.equal(events.at(-1)?.reason, 'aborted');
+  });
+
 });
