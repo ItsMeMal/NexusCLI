@@ -1,6 +1,6 @@
 {
   "name": "@mallssz/nexuscode-cli",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "type": "module",
   "description": "NexusCode — a general-purpose AI orchestration CLI with dynamic providers, MCP, tools and specialist agents",
   "main": "src/cli.js",
