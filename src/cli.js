@@ -924,14 +924,13 @@ async function runInteractive(parsed) {
           }
         }
 
-        try {
-          addProvider({
-            id: provider.id,
-            label: provider.label,
-            baseUrl: provider.baseUrl,
-            protocol: provider.protocol,
-            authFlow: 'oauth2'
-          });
+        addProvider({
+          id: provider.id,
+          label: provider.label,
+          baseUrl: provider.baseUrl,
+          protocol: provider.protocol,
+          authFlow: 'oauth2'
+        });
           const oauthController = new AbortController();
           const canCancelOAuth = Boolean(process.stdin.isTTY && process.stdout.isTTY);
           const oauthWasRaw = canCancelOAuth ? Boolean(process.stdin.isRaw) : false;
