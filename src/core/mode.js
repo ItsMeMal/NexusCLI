@@ -22,8 +22,8 @@ const READ_ONLY_OVERRIDE = [
 const EXPLICIT_EXECUTION = [
   /^\s*(?:please\s+)?(?:add|create|write|edit|modify|change|fix|implement|refactor|update|remove|delete|build|generate|integrate|install|configure|run|execute|test|deploy|publish|rename|move|scaffold)\b/i,
   /\b(?:can you|could you|would you|please|i want you to|help me)\s+(?:please\s+)?(?:add|create|write|edit|modify|change|fix|implement|refactor|update|remove|delete|build|generate|integrate|install|configure|run|execute|test|deploy|publish|rename|move|scaffold)\b/i,
-  /\b(?:tolong|bantu(?: saya)?|bisa bantu|aku mau|saya mau|gw mau|gue mau)\s+(?:untuk\s+)?(?:tambah(?:kan|in)?|buat(?:kan)?|bikin|perbaiki|ubah|edit|ganti|hapus|implementasikan|integrasikan|rombak|pasang|jalankan|tes|uji|deploy|rename|pindahkan)\b/i,
-  /\b(?:tambahkan|buatkan|bikin|perbaiki|ubah|edit|ganti|hapus|implementasikan|integrasikan|rombak|pasang|jalankan|uji|tes|deploy)\b/i
+  /\b(?:tolong|bantu(?: saya)?|bisa bantu|aku mau|saya mau|gw mau|gue mau|gw pengen|gue pengen|aku ingin|saya ingin|i want to|i'd like to)\s+(?:untuk\s+)?(?:tambah(?:kan|in)?|buat(?:kan)?|bikin|perbaiki|ubah|edit|ganti|hapus|implementasikan|integrasikan|rombak|pasang|jalankan|tes|uji|deploy|rename|pindahkan)\b/i,
+  /\b(?:tambah(?:kan|in)?|buat(?:kan)?|bikin|perbaiki|ubah|edit|ganti|hapus|implementasikan|integrasikan|rombak|pasang|jalankan|uji|tes|deploy)\b/i
 ];
 
 export function resolveAutoMode(requestedMode, content) {
