@@ -1,8 +1,31 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildHintLines, filterPickerOptions, formatPickerOption, getPickerWindow } from '../src/core/prompt_input.js';
-import { renderSessionPrompt } from '../src/core/ui.js';
+import { renderBanner, renderSessionPrompt } from '../src/core/ui.js';
 import { stripAnsi } from '../src/core/ui.js';
+
+test('startup banner no longer uses the legacy framed panel', () => {
+  const output = [];
+  const originalLog = console.log;
+  console.log = (...args) => output.push(args.join(' '));
+  try {
+    renderBanner({
+      sessionId: 'ses_test_session_1234567890',
+      mode: 'build',
+      model: 'default-gateway/Elaina-Free',
+      gitBranch: 'main'
+    });
+  } finally {
+    console.log = originalLog;
+  }
+
+  const rendered = stripAnsi(output.join('\\n'));
+  assert.match(rendered, /NEXUSCODE/);
+  assert.match(rendered, /default-gateway\\/Elaina-Free/);
+  assert.match(rendered, /WORKSPACE/);
+  assert.match(rendered, /Ready when you are/);
+  assert.doesNotMatch(rendered, /╭|╰|│/);
+});
 
 test('session prompt uses a compact status rail that stays within terminal width', () => {
   for (const columns of [40, 48, 60, 80, 120]) {
