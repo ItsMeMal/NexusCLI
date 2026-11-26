@@ -110,7 +110,21 @@ export function getOAuthAccessToken(providerId = 'mallss-nexus-route') {
   return pending;
 }
 
-export async function connectMallssNexusRoute({ providerId = 'mallss-nexus-route', gatewayUrl } = {}) {
+export async function connectMallssNexusRoute({
+  providerId = 'mallss-nexus-route',
+  gatewayUrl,
+  signal,
+  onStatus,
+  openBrowserImpl = openBrowser,
+  postTokenImpl = postToken,
+  timeoutMs = 5 * 60 * 1000
+} = {}) {
+  const abortError = () => Object.assign(
+    new Error('OAuth sign-in was cancelled.'),
+    { name: 'AbortError', code: 'ABORT_ERR' }
+  );
+  if (signal?.aborted) throw abortError();
+
   const gateway = getGatewayOrigin(gatewayUrl);
   const verifier = randomBytes(32).toString('base64url');
   const challenge = createHash('sha256').update(verifier).digest('base64url');
@@ -158,11 +172,13 @@ export async function connectMallssNexusRoute({ providerId = 'mallss-nexus-route
     server.once('error', reject);
     server.listen(0, '127.0.0.1', resolve);
   });
+
   const address = server.address();
   if (!address || typeof address === 'string') {
     server.close();
     throw new Error('Could not open a local OAuth callback listener.');
   }
+
   const redirectUri = 'http://127.0.0.1:' + address.port + CALLBACK_PATH;
   const authorizeUrl = new URL(gateway + '/auth/oauth/authorize');
   authorizeUrl.searchParams.set('client_id', CLIENT_ID);
@@ -176,17 +192,32 @@ export async function connectMallssNexusRoute({ providerId = 'mallss-nexus-route
   const timeout = setTimeout(() => {
     if (callbackSettled) return;
     callbackSettled = true;
-    callbackReject(new Error('OAuth sign-in timed out after 5 minutes.'));
-  }, 5 * 60 * 1000);
+    callbackReject(new Error('OAuth sign-in timed out after ' + Math.round(timeoutMs / 1000) + ' seconds.'));
+  }, timeoutMs);
   timeout.unref?.();
 
+  const onAbort = () => {
+    if (callbackSettled) return;
+    callbackSettled = true;
+    callbackReject(abortError());
+  };
+
+  signal?.addEventListener('abort', onAbort, { once: true });
+
   try {
-    const opened = await openBrowser(authorizeUrl.toString());
-    if (!opened) {
-      process.stdout.write('\n  Open this URL in your browser to continue:\n  ' + authorizeUrl.toString() + '\n\n');
-    }
+    if (signal?.aborted) throw abortError();
+
+    const opened = await openBrowserImpl(authorizeUrl.toString());
+    onStatus?.({
+      opened,
+      authorizeUrl: authorizeUrl.toString(),
+      redirectUri
+    });
+
     const code = await callbackResult;
-    const payload = await postToken(gateway, {
+    if (signal?.aborted) throw abortError();
+
+    const payload = await postTokenImpl(gateway, {
       grant_type: 'authorization_code',
       client_id: CLIENT_ID,
       code,
@@ -198,6 +229,7 @@ export async function connectMallssNexusRoute({ providerId = 'mallss-nexus-route
     return payload.user || bundle.user;
   } finally {
     clearTimeout(timeout);
+    signal?.removeEventListener('abort', onAbort);
     server.close();
     server.closeAllConnections?.();
   }
