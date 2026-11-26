@@ -12,7 +12,7 @@ test('startup banner no longer uses the legacy framed panel', () => {
     renderBanner({
       sessionId: 'ses_test_session_1234567890',
       mode: 'build',
-      model: 'default-gateway/Elaina-Free',
+  assert.ok(rendered.includes('default-gateway/Elaina-Free'));
       gitBranch: 'main'
     });
   } finally {
