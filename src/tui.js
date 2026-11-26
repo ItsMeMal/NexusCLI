@@ -10,8 +10,9 @@ import { exportSessionToHTML } from './core/export.js';
 import { getModelConfig } from './core/context.js';
 import { isDockerAvailable } from './core/sandbox.js';
 import { defaultRegistry } from './tools/index.js';
-import { COMMANDS_REGISTRY } from './core/prompt_input.js';
-import { addProvider, connectProvider, getDefaultModelSelection, getProviderCatalog, getProviderPickerCatalog, listAllModels, listProviderModels, removeProvider } from './core/providers/index.js';
+import { COMMANDS_REGISTRY, getPickerWindow } from './core/prompt_input.js';
+import { addProvider, connectProvider, disconnectProvider, getDefaultModelSelection, getProviderCatalog, getProviderPickerCatalog, listAllModels, listProviderModels, removeProvider } from './core/providers/index.js';
+import { connectMallssNexusRoute, revokeOAuthProvider } from './core/providers/oauth.js';
 
 const createElement = React.createElement;
 
@@ -479,68 +480,182 @@ function CommandPalette({ commands, selectedIndex, scrollOffset, pageSize }) {
   );
 }
 
-function ProviderPalette({ providers, selectedIndex, query = '' }) {
+function terminalDisplayWidth(value) {
+  let width = 0;
+  for (const char of Array.from(String(value ?? ''))) {
+    const code = char.codePointAt(0);
+    const wide = code >= 0x1100 && (
+      code <= 0x115f || code === 0x2329 || code === 0x232a ||
+      (code >= 0x2e80 && code <= 0xa4cf) ||
+      (code >= 0xac00 && code <= 0xd7a3) ||
+      (code >= 0xf900 && code <= 0xfaff) ||
+      (code >= 0xfe10 && code <= 0xfe19) ||
+      (code >= 0xfe30 && code <= 0xfe6f) ||
+      (code >= 0xff00 && code <= 0xff60) ||
+      (code >= 0xffe0 && code <= 0xffe6) ||
+      (code >= 0x1f300 && code <= 0x1faff)
+    );
+    width += wide ? 2 : 1;
+  }
+  return width;
+}
+
+function clipTerminalText(value, maxWidth) {
+  const text = String(value ?? '').replace(/[\\r\\n\\t]+/g, ' ').replace(/\\s+/g, ' ').trim();
+  const width = Math.max(0, Number(maxWidth) || 0);
+  if (!width) return '';
+  if (terminalDisplayWidth(text) <= width) return text;
+
+  let used = 0;
+  let result = '';
+  for (const char of Array.from(text)) {
+    const charWidth = terminalDisplayWidth(char);
+    if (used + charWidth > Math.max(0, width - 1)) break;
+    result += char;
+    used += charWidth;
+  }
+  return width > 1 ? result + '…' : result;
+}
+
+function ProviderPalette({ providers, selectedIndex, query = '', columns = 80, maxVisible = 6 }) {
+  const viewport = getPickerWindow(providers, selectedIndex, maxVisible);
   const rows = [];
   let category = null;
-  (providers || []).forEach((provider, index) => {
+  const lineWidth = Math.max(20, (Number(columns) || 80) - 8);
+
+  viewport.items.forEach((provider, visibleIndex) => {
     if (provider.category && provider.category !== category) {
       category = provider.category;
-      rows.push(createElement(Text, { key: 'category-' + category, color: 'magenta', bold: true }, '  ' + category.toUpperCase()));
+      rows.push(createElement(Text, {
+        key: 'category-' + category,
+        color: 'magenta',
+        bold: true
+      }, '  ' + clipTerminalText(category.toUpperCase(), lineWidth)));
     }
-    const selected = index === selectedIndex;
-    rows.push(createElement(Box, { key: provider.id, flexDirection: 'row' },
-      createElement(Text, { color: selected ? 'black' : 'cyan', backgroundColor: selected ? 'magenta' : undefined, bold: selected },
-        (selected ? '❯ ' : '  ') + provider.label.padEnd(24)),
-      createElement(Text, { color: provider.connected ? 'green' : 'yellow' }, provider.connected ? '✓ CONNECTED' : 'CONNECT'),
-      createElement(Spacer),
-      createElement(Text, { color: provider.active ? 'green' : 'gray' }, provider.active ? '● ACTIVE' : ''),
-      createElement(Text, { color: 'gray' }, '  ' + (provider.baseUrl || ''))
+
+    const absoluteIndex = viewport.start + visibleIndex;
+    const selected = absoluteIndex === viewport.selectedIndex;
+    const status = provider.authFlow === 'oauth2'
+      ? (provider.connected ? 'OAUTH CONNECTED' : 'OAUTH SIGN-IN')
+      : (provider.connected ? 'CONNECTED' : (provider.id === '__custom__' ? 'ADD ENDPOINT' : 'SETUP'));
+    const statusColor = provider.connected ? 'green' : 'yellow';
+    const labelWidth = Math.max(8, lineWidth - terminalDisplayWidth(status) - 4);
+    const label = clipTerminalText((selected ? '❯ ' : '  ') + provider.label, labelWidth);
+    const detail = provider.baseUrl || 'Add an OpenAI-compatible endpoint';
+
+    rows.push(createElement(Box, {
+      key: provider.id,
+      flexDirection: 'column',
+      marginBottom: 0
+    },
+      createElement(Box, { flexDirection: 'row' },
+        createElement(Text, {
+          color: selected ? 'black' : 'white',
+          backgroundColor: selected ? 'magenta' : undefined,
+          bold: selected
+        }, label),
+        createElement(Spacer),
+        createElement(Text, { color: statusColor, bold: true }, status),
+        provider.active
+          ? createElement(Text, { color: 'green', bold: true }, ' ACTIVE')
+          : null
+      ),
+      createElement(Text, { color: 'gray', dimColor: true },
+        clipTerminalText(detail, lineWidth - 2))
     ));
   });
-  if (!rows.length) rows.push(createElement(Text, { key: 'empty', color: 'yellow' }, '  No provider matches this search.'));
-  return createElement(Box, { flexDirection: 'column', borderStyle: 'round', borderColor: 'magenta', paddingX: 1, marginY: 0 },
+
+  if (!providers?.length) {
+    rows.push(createElement(Text, { key: 'empty', color: 'yellow' }, '  No provider matches this search.'));
+  }
+
+  return createElement(Box, {
+    flexDirection: 'column',
+    borderStyle: 'round',
+    borderColor: 'magenta',
+    paddingX: 1,
+    marginY: 0
+  },
     createElement(Box, { flexDirection: 'row' },
-      createElement(Text, { color: 'magenta', bold: true }, '🔌 CONNECT PROVIDER '),
+      createElement(Text, { color: 'magenta', bold: true }, 'CONNECT PROVIDER'),
       createElement(Spacer),
-      createElement(Text, { color: 'gray', dimColor: true }, '↑/↓ • type to search • Enter connect • Esc close')
+      createElement(Text, { color: 'gray', dimColor: true }, '↑/↓ • search • Enter • Esc')
     ),
-    createElement(Text, { color: 'gray' }, '  Search: ' + (query || 'all supported providers')),
+    createElement(Text, { color: 'gray' },
+      '  Search: ' + (query || 'all supported providers')),
+    viewport.hasAbove
+      ? createElement(Text, { color: 'gray', dimColor: true },
+          '  … ' + viewport.start + ' providers above')
+      : null,
     ...rows,
-    createElement(Text, { color: 'gray', dimColor: true }, '  Custom endpoints: /provider add <id> <base_url> <api_key_env> - <label>')
+    viewport.hasBelow
+      ? createElement(Text, { color: 'gray', dimColor: true },
+          '  … ' + (providers.length - viewport.end) + ' providers below')
+      : null,
+    createElement(Text, { color: 'gray', dimColor: true },
+      '  Select a provider to connect. Custom endpoints can be added with /provider add.')
   );
 }
 
-function ModelPalette({ models, selectedIndex, query = '', activeModel = '' }) {
-  const maxItems = 9;
-  const start = Math.max(0, Math.min(Math.max(0, models.length - maxItems), selectedIndex - 3));
-  const visible = (models || []).slice(start, start + maxItems);
+function ModelPalette({ models, selectedIndex, query = '', activeModel = '', columns = 80, maxVisible = 7 }) {
+  const viewport = getPickerWindow(models, selectedIndex, maxVisible);
   const rows = [];
+  const lineWidth = Math.max(20, (Number(columns) || 80) - 8);
   let provider = null;
-  visible.forEach((model, visibleIndex) => {
+
+  viewport.items.forEach((model, visibleIndex) => {
     if (model.providerLabel !== provider) {
       provider = model.providerLabel;
-      rows.push(createElement(Text, { key: 'provider-' + provider, color: 'magenta', bold: true }, '  ' + provider.toUpperCase()));
+      rows.push(createElement(Text, {
+        key: 'provider-' + provider,
+        color: 'magenta',
+        bold: true
+      }, '  ' + clipTerminalText(String(provider || 'Provider').toUpperCase(), lineWidth)));
     }
-    const index = start + visibleIndex;
-    const selected = index === selectedIndex;
+
+    const absoluteIndex = viewport.start + visibleIndex;
+    const selected = absoluteIndex === viewport.selectedIndex;
+    const active = model.id === activeModel;
+    const status = active ? 'ACTIVE' : '';
+    const labelWidth = Math.max(8, lineWidth - terminalDisplayWidth(status) - 4);
     rows.push(createElement(Box, { key: model.id, flexDirection: 'row' },
-      createElement(Text, { color: selected ? 'black' : 'cyan', backgroundColor: selected ? 'cyan' : undefined, bold: selected },
-        (selected ? '❯ ' : '  ') + model.model),
+      createElement(Text, {
+        color: selected ? 'black' : 'cyan',
+        backgroundColor: selected ? 'cyan' : undefined,
+        bold: selected
+      }, clipTerminalText((selected ? '❯ ' : '  ') + model.model, labelWidth)),
       createElement(Spacer),
-      createElement(Text, { color: model.id === activeModel ? 'green' : 'gray' }, model.id === activeModel ? '● ACTIVE' : model.id)
+      status ? createElement(Text, { color: 'green', bold: true }, status) : null
     ));
   });
-  if (!visible.length) rows.push(createElement(Text, { key: 'empty', color: 'yellow' }, '  No models match this search.'));
-  return createElement(Box, { flexDirection: 'column', borderStyle: 'round', borderColor: 'cyan', paddingX: 1, marginY: 0 },
+
+  if (!models?.length) {
+    rows.push(createElement(Text, { key: 'empty', color: 'yellow' }, '  No models match this search.'));
+  }
+
+  return createElement(Box, {
+    flexDirection: 'column',
+    borderStyle: 'round',
+    borderColor: 'cyan',
+    paddingX: 1,
+    marginY: 0
+  },
     createElement(Box, { flexDirection: 'row' },
-      createElement(Text, { color: 'cyan', bold: true }, '◈ SELECT MODEL '),
+      createElement(Text, { color: 'cyan', bold: true }, 'SELECT MODEL · ' + models.length),
       createElement(Spacer),
-      createElement(Text, { color: 'gray', dimColor: true }, '↑/↓ • type to search • Enter select • Esc close')
+      createElement(Text, { color: 'gray', dimColor: true }, '↑/↓ • search • Enter • Esc')
     ),
-    createElement(Text, { color: 'gray' }, '  Search: ' + (query || 'all connected models')),
-    start > 0 ? createElement(Text, { color: 'gray', dimColor: true }, '  … more models above') : null,
+    createElement(Text, { color: 'gray' },
+      '  Search: ' + (query || 'all connected models')),
+    viewport.hasAbove
+      ? createElement(Text, { color: 'gray', dimColor: true },
+          '  … ' + viewport.start + ' models above')
+      : null,
     ...rows,
-    start + maxItems < models.length ? createElement(Text, { color: 'gray', dimColor: true }, '  … more models below') : null
+    viewport.hasBelow
+      ? createElement(Text, { color: 'gray', dimColor: true },
+          '  … ' + (models.length - viewport.end) + ' models below')
+      : null
   );
 }
 
@@ -580,7 +695,7 @@ function FooterBar() {
 function NexusTUIApp({ client, snapshotManager }) {
   const { exit } = useApp();
   const { isRawModeSupported } = useStdin();
-  const { rows } = useWindowSize();
+  const { rows, columns } = useWindowSize();
   const [session, setSession] = useState(client.sessionData);
   const [messages, setMessages] = useState([]);
   const [activeStream, setActiveStream] = useState('');
@@ -621,6 +736,8 @@ function NexusTUIApp({ client, snapshotManager }) {
   const providerItems = [...providerOptions, { id: '__custom__', label: 'Custom OpenAI-compatible endpoint', category: 'Custom', connected: false, active: false, baseUrl: 'Register another API-compatible gateway' }];
   const filteredProviderOptions = providerItems.filter(provider => !providerQuery || (provider.label + ' ' + provider.id + ' ' + provider.category + ' ' + provider.baseUrl).toLowerCase().includes(providerQuery.toLowerCase()));
   const filteredModelOptions = modelOptions.filter(model => !modelQuery || (model.model + ' ' + model.id + ' ' + model.providerLabel).toLowerCase().includes(modelQuery.toLowerCase()));
+  const providerPageSize = Math.max(2, Math.min(7, Math.floor(((rows || 28) - 8) / 2)));
+  const modelPageSize = Math.max(2, Math.min(8, Math.floor(((rows || 28) - 9) / 2)));
   const commandPageSize = input.trim() === '/' ? filteredCommands.length : PAGE_SIZE;
 
   // Reset scroll and selection index if query changes
@@ -702,6 +819,30 @@ function NexusTUIApp({ client, snapshotManager }) {
       return;
     }
 
+    if (trimmed.startsWith('/provider disconnect ')) {
+      const id = trimmed.slice('/provider disconnect'.length).trim();
+      if (!id) {
+        setMessages(prev => [...prev, { role: 'assistant', content: 'Usage: /provider disconnect <id>' }]);
+        return;
+      }
+      const target = getProviderPickerCatalog(session?.model).find(provider => provider.id === id);
+      let revokeWarning = '';
+      if (target?.authFlow === 'oauth2') {
+        try {
+          await revokeOAuthProvider(id);
+        } catch (error) {
+          revokeWarning = ' Remote revocation could not be confirmed: ' + error.message;
+        }
+      }
+      const removed = disconnectProvider(id);
+      setMessages(prev => [...prev, { role: 'assistant', content:
+        (removed || target?.authFlow === 'oauth2'
+          ? 'Disconnected ' + (target?.label || id) + '.'
+          : 'No locally stored credentials were found for ' + id + '.') + revokeWarning
+      }]);
+      return;
+    }
+
     if (trimmed.startsWith('/provider remove ')) {
       const id = trimmed.slice('/provider remove'.length).trim();
       const removed = removeProvider(id);
@@ -716,7 +857,9 @@ function NexusTUIApp({ client, snapshotManager }) {
       const entries = getProviderCatalog(session?.model);
       setMessages(prev => [...prev, { role: 'assistant', content: entries.length
         ? entries.map(provider => provider.label + ' (' + provider.id + ') — ' +
-          (provider.configured ? 'API key ready' : 'missing ' + provider.keyVariable) +
+          (provider.authFlow === 'oauth2'
+            ? (provider.configured ? 'OAuth connected' : 'browser sign-in required')
+            : (provider.configured ? 'API key ready' : 'missing ' + provider.keyVariable)) +
           ' — ' + provider.baseUrl).join('\n')
         : 'Belum ada provider. Gunakan /provider add untuk menambahkan AI router.'
       }]);
@@ -1179,8 +1322,12 @@ function NexusTUIApp({ client, snapshotManager }) {
     // Searchable model picker, grouped by provider.
     if (modelPickerOpen) {
       if (key.escape) { setModelPickerOpen(false); setModelQuery(''); return; }
-      if (key.upArrow) { setSelectedModelIndex(index => Math.max(0, index - 1)); return; }
-      if (key.downArrow) { setSelectedModelIndex(index => Math.min(filteredModelOptions.length - 1, index + 1)); return; }
+      if (!filteredModelOptions.length) {
+        if (key.escape) { setModelPickerOpen(false); setModelQuery(''); }
+        return;
+      }
+      if (key.upArrow) { setSelectedModelIndex(index => Math.max(0, Math.min(filteredModelOptions.length - 1, index - 1))); return; }
+      if (key.downArrow) { setSelectedModelIndex(index => Math.max(0, Math.min(filteredModelOptions.length - 1, index + 1))); return; }
       if (key.backspace || key.delete) { setModelQuery(value => value.slice(0, -1)); setSelectedModelIndex(0); return; }
       if (key.ctrl && (inputChar || '').toLowerCase() === 'u') { setModelQuery(''); setSelectedModelIndex(0); return; }
       if (key.return) {
@@ -1207,8 +1354,12 @@ function NexusTUIApp({ client, snapshotManager }) {
     // Searchable provider connection picker.
     if (providerPickerOpen) {
       if (key.escape) { setProviderPickerOpen(false); setProviderQuery(''); return; }
-      if (key.upArrow) { setSelectedProviderIndex(index => Math.max(0, index - 1)); return; }
-      if (key.downArrow) { setSelectedProviderIndex(index => Math.min(filteredProviderOptions.length - 1, index + 1)); return; }
+      if (!filteredProviderOptions.length) {
+        if (key.escape) { setProviderPickerOpen(false); setProviderQuery(''); }
+        return;
+      }
+      if (key.upArrow) { setSelectedProviderIndex(index => Math.max(0, Math.min(filteredProviderOptions.length - 1, index - 1))); return; }
+      if (key.downArrow) { setSelectedProviderIndex(index => Math.max(0, Math.min(filteredProviderOptions.length - 1, index + 1))); return; }
       if (key.backspace || key.delete) { setProviderQuery(value => value.slice(0, -1)); setSelectedProviderIndex(0); return; }
       if (key.ctrl && (inputChar || '').toLowerCase() === 'u') { setProviderQuery(''); setSelectedProviderIndex(0); return; }
       if (key.return) {
@@ -1223,6 +1374,67 @@ function NexusTUIApp({ client, snapshotManager }) {
           }]);
           return;
         }
+        if (provider.authFlow === 'oauth2') {
+          if (provider.connected) {
+            setMessages(prev => [...prev, { role: 'assistant', content:
+              provider.label + ' is already connected. Use /models to choose a model. To reconnect, run /provider disconnect ' + provider.id + ' and then /connect.'
+            }]);
+            return;
+          }
+
+          try {
+            addProvider({
+              id: provider.id,
+              label: provider.label,
+              baseUrl: provider.baseUrl,
+              protocol: provider.protocol,
+              authFlow: 'oauth2'
+            });
+          } catch (error) {
+            setMessages(prev => [...prev, { role: 'assistant', content: 'Could not prepare ' + provider.label + ': ' + error.message }]);
+            return;
+          }
+
+          setAgentStatus({ state: 'thinking', text: 'Opening secure browser sign-in for ' + provider.label + '...' });
+          void (async () => {
+            try {
+              const account = await connectMallssNexusRoute({ providerId: provider.id });
+              let models = [];
+              let discoveryError = '';
+              try {
+                models = await listProviderModels(provider.id);
+              } catch (error) {
+                discoveryError = error.message;
+              }
+              if (models.length) {
+                addProvider({
+                  id: provider.id,
+                  label: provider.label,
+                  baseUrl: provider.baseUrl,
+                  protocol: provider.protocol,
+                  authFlow: 'oauth2',
+                  defaultModel: models[0].model
+                });
+              }
+              const accountLabel = account?.email ? ' as ' + account.email : '';
+              setMessages(prev => [...prev, { role: 'assistant', content:
+                'Connected to ' + provider.label + accountLabel + '. ' +
+                (models.length
+                  ? models.length + ' models discovered. Use /models to select one.'
+                  : 'OAuth is connected. Use /models to refresh the model list.' +
+                    (discoveryError ? '\\nModel discovery: ' + discoveryError : ''))
+              }]);
+            } catch (error) {
+              setMessages(prev => [...prev, { role: 'assistant', content:
+                'OAuth connection failed for ' + provider.label + ': ' + error.message
+              }]);
+            } finally {
+              setAgentStatus({ state: 'idle', text: '' });
+            }
+          })();
+          return;
+        }
+
         setProviderSecret('');
         setProviderKeyPrompt(provider);
         return;
@@ -1361,10 +1573,10 @@ function NexusTUIApp({ client, snapshotManager }) {
         })
       : null,
     providerPickerOpen
-      ? createElement(ProviderPalette, { providers: filteredProviderOptions, selectedIndex: selectedProviderIndex, query: providerQuery })
+      ? createElement(ProviderPalette, { providers: filteredProviderOptions, selectedIndex: selectedProviderIndex, query: providerQuery, columns, maxVisible: providerPageSize })
       : null,
     modelPickerOpen
-      ? createElement(ModelPalette, { models: filteredModelOptions, selectedIndex: selectedModelIndex, query: modelQuery, activeModel: session?.model })
+      ? createElement(ModelPalette, { models: filteredModelOptions, selectedIndex: selectedModelIndex, query: modelQuery, activeModel: session?.model, columns, maxVisible: modelPageSize })
       : null,
     providerKeyPrompt
       ? createElement(ProviderSecretPrompt, { provider: providerKeyPrompt, value: providerSecret })
