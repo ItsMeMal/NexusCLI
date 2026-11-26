@@ -46,6 +46,29 @@ test('update check reads GitHub main and caches a valid package version', async 
   assert.equal(requests, 1);
 });
 
+test('disabled update checks do not display a cached update alert', async (t) => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'nexuscode-update-disabled-'));
+  const cachePath = path.join(dir, 'update-check.json');
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  await fs.writeFile(cachePath, JSON.stringify({ latestVersion: '9.9.9', checkedAt: 1000000 }));
+
+  const previous = process.env.NEXUS_DISABLE_UPDATE_CHECK;
+  process.env.NEXUS_DISABLE_UPDATE_CHECK = '1';
+  try {
+    const result = await checkForUpdates({
+      fetchImpl: async () => { throw new Error('Disabled checks must not make network requests'); },
+      cachePath,
+      now: 1000001
+    });
+    assert.equal(result.disabled, true);
+    assert.equal(result.updateAvailable, false);
+    assert.equal(result.latestVersion, null);
+  } finally {
+    if (previous === undefined) delete process.env.NEXUS_DISABLE_UPDATE_CHECK;
+    else process.env.NEXUS_DISABLE_UPDATE_CHECK = previous;
+  }
+});
+
 test('source checkout update plan fast-forwards main before installing dependencies', async () => {
   const plan = getUpdatePlan({ platform: 'win32', sourceCheckout: true });
   assert.deepEqual(plan.map(item => item.stage), ['git-pull', 'dependencies']);
