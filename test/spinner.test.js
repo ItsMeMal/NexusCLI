@@ -67,7 +67,7 @@ test('startup animation writes real terminal control sequences and restores the 
   assert.equal(shown, true);
   assert.ok(writes.some(value => value.includes('NEXI')));
   assert.ok(writes.some(value => value.includes('Waking up')));
-  assert.equal(writes.filter(value => value.includes('\r\x1b[2K')).length, 3);
+  assert.equal(writes.filter(value => value.includes('\r\x1b[2K')).length, 4);
   assert.ok(!writes.some(value => value.includes('\x1b[4A')), 'animation must not move the cursor across multiple rows');
   assert.equal(writes[0], '\x1b[?25l');
   assert.ok(writes.at(-2).endsWith('\n'));
