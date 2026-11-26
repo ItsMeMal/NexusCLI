@@ -87,14 +87,25 @@ export async function checkForUpdates({
   timeoutMs = 2200
 } = {}) {
   const cached = readUpdateCache(cachePath);
-  if (process.env.NEXUS_DISABLE_UPDATE_CHECK === '1' || typeof fetchImpl !== 'function') {
+  if (process.env.NEXUS_DISABLE_UPDATE_CHECK === '1') {
+    return {
+      currentVersion: CURRENT_VERSION,
+      latestVersion: null,
+      updateAvailable: false,
+      checkedAt: cached?.checkedAt || null,
+      checked: false,
+      disabled: true
+    };
+  }
+
+  if (typeof fetchImpl !== 'function') {
     return {
       currentVersion: CURRENT_VERSION,
       latestVersion: cached?.latestVersion || null,
       updateAvailable: cached ? isVersionNewer(cached.latestVersion, CURRENT_VERSION) : false,
       checkedAt: cached?.checkedAt || null,
       checked: false,
-      disabled: true
+      stale: Boolean(cached)
     };
   }
 
