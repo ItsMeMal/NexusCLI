@@ -60,7 +60,7 @@ test('startup animation writes real terminal control sequences and restores the 
   assert.equal(shown, true);
   assert.ok(writes.some(value => value.includes('NEXUSCODE')));
   assert.ok(writes.some(value => value.includes('Waking up your companion')));
-  assert.ok(writes.some(value => value.includes('\\x1b[4A')));
+  assert.ok(writes.some(value => value.includes('\x1b[4A')));
   assert.equal(writes[0], '\x1b[?25l');
   assert.ok(writes.some(value => value.includes('\r\x1b[K')));
   assert.ok(writes.at(-2).endsWith('\n'));
