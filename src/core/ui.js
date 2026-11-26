@@ -140,7 +140,7 @@ export async function renderStartupAnimation({
     { label: 'Ready', progress: 100 }
   ];
 
-  output.write('\\x1b[?25l');
+  output.write('\x1b[?25l');
   try {
     for (let index = 0; index < stages.length; index++) {
       const stage = stages[index];
@@ -149,16 +149,16 @@ export async function renderStartupAnimation({
       const glyph = index === stages.length - 1 ? '✓' : frames[index % frames.length];
       const color = index === stages.length - 1 ? c.green : c.cyan;
       output.write(
-        '\\r\\x1b[K  ' + color + glyph + c.reset + ' ' +
+        '\r\x1b[K  ' + color + glyph + c.reset + ' ' +
         c.bold + 'NEXUSCODE' + c.reset + ' ' +
         c.dim + stage.label + c.reset + ' ' +
         color + bar + c.reset + ' ' + c.dim + stage.progress + '%' + c.reset
       );
       await sleep(intervalMs);
     }
-    output.write('\\n');
+    output.write('\n');
   } finally {
-    output.write('\\x1b[?25h');
+    output.write('\x1b[?25h');
   }
   return true;
 }
@@ -167,11 +167,11 @@ export async function renderStartupAnimation({
 export function renderUpdateNotice(updateInfo) {
   if (!updateInfo?.updateAvailable || !updateInfo.latestVersion) return false;
   console.log(
-    `\\n  ${c.bgYellow}${c.black}${c.bold} UPDATE AVAILABLE ${c.reset} ` +
+    `\n  ${c.bgYellow}${c.black}${c.bold} UPDATE AVAILABLE ${c.reset} ` +
     `${c.bold}NexusCode v${updateInfo.latestVersion}${c.reset} ` +
     `${c.dim}(installed v${updateInfo.currentVersion})${c.reset}`
   );
-  console.log(`  Run ${c.cyan}${c.bold}/update${c.reset} to install the newer version.\\n`);
+  console.log(`  Run ${c.cyan}${c.bold}/update${c.reset} to install the newer version.\n`);
   return true;
 }
 
