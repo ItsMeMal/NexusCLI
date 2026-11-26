@@ -77,8 +77,8 @@ test('source checkout updater runs pull and dependency installation in sequence'
   assert.equal(result.sourceCheckout, true);
 });
 
-test('updater reports the 0.1.3 package version and targets the repository main branch', () => {
-  assert.equal(CURRENT_VERSION, '0.1.3');
+test('updater reports the 0.1.4 package version and targets the repository main branch', () => {
+  assert.equal(CURRENT_VERSION, '0.1.4');
   assert.equal(UPDATE_SOURCE, 'github:ItsMeMal/NexusCode#main');
 
   const unix = getUpdateCommand('linux');
@@ -94,6 +94,7 @@ test('update installer reports the npm exit status without invoking a real proce
   let received;
   const result = await installLatestFromGitHub({
     platform: 'linux',
+    sourceCheckout: false,
     spawnImpl(command, args, options) {
       received = { command, args, options };
       const child = new EventEmitter();
@@ -105,5 +106,5 @@ test('update installer reports the npm exit status without invoking a real proce
   assert.equal(received.command, 'npm');
   assert.deepEqual(received.args, ['install', '--global', UPDATE_SOURCE]);
   assert.equal(received.options.stdio, 'inherit');
-  assert.deepEqual(result, { code: 0, signal: null });
+  assert.deepEqual(result, { code: 0, signal: null, sourceCheckout: false });
 });
