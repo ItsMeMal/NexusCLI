@@ -102,6 +102,35 @@ export function filterPickerOptions(options, query = '') {
     .sort((a, b) => b.score - a.score || a.index - b.index);
 }
 
+/**
+ * Return a stable, clamped viewport into a searchable picker list.
+ * The selected index always refers to the filtered list passed by the caller.
+ */
+export function getPickerWindow(items, selectedIndex = 0, maxVisible = 10) {
+  const list = Array.isArray(items) ? items : [];
+  const limit = Math.max(1, Math.floor(Number(maxVisible) || 1));
+  if (!list.length) {
+    return { start: 0, end: 0, items: [], selectedIndex: -1, hasAbove: false, hasBelow: false };
+  }
+
+  const requestedIndex = Number.isInteger(selectedIndex) ? selectedIndex : 0;
+  const selected = Math.max(0, Math.min(list.length - 1, requestedIndex));
+  const start = Math.max(0, Math.min(
+    Math.max(0, list.length - limit),
+    selected - Math.floor(limit / 2)
+  ));
+  const end = Math.min(list.length, start + limit);
+
+  return {
+    start,
+    end,
+    items: list.slice(start, end),
+    selectedIndex: selected,
+    hasAbove: start > 0,
+    hasBelow: end < list.length
+  };
+}
+
 function displayWidth(value) {
   return Array.from(stripAnsi(String(value ?? ''))).reduce((width, char) => {
     const code = char.codePointAt(0);
