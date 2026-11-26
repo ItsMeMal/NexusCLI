@@ -19,6 +19,7 @@ import {
   Spinner,
   badge,
   renderBanner,
+  renderSessionPrompt,
   renderStartupAnimation,
   renderUpdateNotice,
   renderCommandList,
@@ -514,20 +515,16 @@ async function runInteractive(parsed) {
   // Main Interactive Loop
   while (true) {
     const s = client.sessionData;
-    const modeBadge = s.mode === 'plan'
-      ? `${c.bgYellow}${c.black}${c.bold} PLAN ${c.reset}`
-      : `${c.bgGreen}${c.black}${c.bold} BUILD ${c.reset}`;
     const curBranch = (await snapshotManager.getCurrentBranch()) || 'main';
-    const modelTag = `${c.cyan}${c.bold}${s.model || 'default'}${c.reset}`;
-    const shortId = client.sessionId ? client.sessionId.slice(0, 16) + '…' : '';
-
-    // Modern Starship / Claude Code 2-line prompt with real-time slash suggestions
-    const header = `${c.dim}╭─${c.reset} ${modeBadge} ${c.magenta} ${curBranch}${c.reset} ${c.dim}•${c.reset} ${modelTag} ${c.dim}(${shortId})${c.reset}\n`;
-    const arrow = `${c.dim}╰─${c.reset}${c.cyan}${c.bold}❯${c.reset} `;
+    const promptFrame = renderSessionPrompt({
+      mode: s.mode,
+      gitBranch: curBranch,
+      model: s.model
+    });
 
     const input = await promptWithAutocomplete({
-      header,
-      arrow,
+      header: promptFrame.header,
+      arrow: promptFrame.arrow,
       history: commandHistory
     });
 
