@@ -86,6 +86,64 @@ describe('runAgentLoop', () => {
     assert.equal(messages[2].content, '12');
   });
 
+  test('compacts after a large read_file result without crashing', async () => {
+    const registry = new ToolRegistry();
+    registry.register({
+      name: 'read_file',
+      description: 'Read a file from the workspace',
+      parameters: { type: 'object', properties: { path: { type: 'string' } } },
+      async execute() {
+        return 'file-content '.repeat(700);
+      }
+    });
+
+    const largeHistory = 'context '.repeat(430);
+    const messages = [
+      { role: 'system', content: largeHistory },
+      { role: 'user', content: largeHistory },
+      { role: 'assistant', content: largeHistory },
+      { role: 'user', content: largeHistory },
+      { role: 'assistant', content: largeHistory },
+      { role: 'user', content: largeHistory },
+      { role: 'assistant', content: largeHistory }
+    ];
+
+    let turn = 0;
+    const events = [];
+    const mockChat = async () => {
+      turn++;
+      if (turn === 1) {
+        return {
+          role: 'assistant',
+          content: null,
+          tool_calls: [{
+            id: 'call_read_large_file',
+            type: 'function',
+            function: {
+              name: 'read_file',
+              arguments: JSON.stringify({ path: 'AGENTS.md' })
+            }
+          }]
+        };
+      }
+      return { role: 'assistant', content: 'I read the project instructions successfully.' };
+    };
+
+    const result = await runAgentLoop({
+      messages,
+      registry,
+      chatFn: mockChat,
+      onEvent: event => events.push(event)
+    });
+
+    assert.equal(result.completed, true);
+    assert.equal(result.finalMessage.content, 'I read the project instructions successfully.');
+    const compacted = events.find(event => event.type === 'context.compacted');
+    assert.ok(compacted, 'large tool result should trigger context compaction');
+    assert.ok(Number.isInteger(compacted.newMessageCount));
+    assert.ok(compacted.newMessageCount > 0);
+  });
+
   test('gracefully handles broken/corrupted JSON arguments without crashing', async () => {
     const registry = new ToolRegistry();
     registry.register({
