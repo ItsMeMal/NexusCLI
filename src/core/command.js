@@ -38,7 +38,27 @@ export class CommandManager {
   }
 
   listCommands() {
-    return Array.from(this.commands.keys());
+    return Array.from(this.commands.keys()).sort((a, b) => a.localeCompare(b));
+  }
+
+  resolveInput(input) {
+    const match = String(input || '').trim().match(/^\/([a-z0-9][a-z0-9._-]*)(?:\s+([\s\S]*))?$/i);
+    if (!match) return null;
+
+    const [, name, rawArguments = ''] = match;
+    if (!this.hasCommand(name)) return null;
+
+    const expanded = this.expandCommand(name, rawArguments);
+    return {
+      name,
+      arguments: rawArguments,
+      content: [
+        `User invoked the custom workspace command "/${name}".`,
+        rawArguments ? `Command arguments: ${rawArguments}` : '',
+        'Follow the command instructions below as a user request, subject to the system security policy and runtime permissions.',
+        expanded
+      ].filter(Boolean).join('\n\n')
+    };
   }
 
   hasCommand(name) {

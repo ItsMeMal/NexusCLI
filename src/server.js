@@ -145,6 +145,12 @@ export function createNexusServer(options = {}) {
         return;
       }
 
+      // 1b. GET /commands -> custom workspace slash commands
+      if (req.method === 'GET' && pathname === '/commands') {
+        sendJson(res, 200, { commands: extensionManager.commands.listCommands() });
+        return;
+      }
+
       // 2. GET /session -> list all sessions
       if (req.method === 'GET' && pathname === '/session') {
         const list = await sessionManager.listSessions();
@@ -255,8 +261,12 @@ export function createNexusServer(options = {}) {
           return;
         }
 
-        const taskRoute = resolveAutoMode(session.mode, content);
-        session.messages.push({ role: 'user', content });
+        const customCommand = extensionManager.commands.resolveInput(content);
+        const userContent = customCommand?.content || content;
+        const taskRoute = resolveAutoMode(session.mode, customCommand
+          ? `${content}\n${userContent}`
+          : userContent);
+        session.messages.push({ role: 'user', content: userContent });
         await sessionManager.saveSession(session);
 
         const abortController = new AbortController();

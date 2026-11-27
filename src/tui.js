@@ -131,6 +131,13 @@ class TUIClient {
     return await res.json();
   }
 
+  async listCommands() {
+    const res = await fetch(`${this.serverUrl}/commands`, { headers: this.getHeaders() });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    return Array.isArray(data.commands) ? data.commands : [];
+  }
+
   async loadSession(id) {
     const res = await fetch(`${this.serverUrl}/session/${id}`, { headers: this.getHeaders() });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -309,7 +316,7 @@ function NexusCompactHeader({ session, agentStatus, tokenUsage, frameIndex, elap
       createElement(Box, { paddingX: 1 },
         createElement(Text, {
           color: 'black',
-          backgroundColor: mode === 'plan' ? 'yellow' : 'green',
+          backgroundColor: mode === 'plan' ? 'yellow' : mode === 'auto' ? 'magenta' : 'green',
           bold: true
         }, ` ${mode.toUpperCase()} `)
       ),
@@ -690,7 +697,7 @@ function InputBox({ input, mode, isBusy }) {
 function FooterBar() {
   return createElement(Box, { paddingX: 1, marginTop: 0 },
     createElement(Text, { color: 'gray', dimColor: true },
-      'Perintah cepat: /help  /plan  /build  /diff  /doctor  /cost  /undo  /redo  /compact  exit'
+      'Perintah cepat: /help  /plan  /build  /auto  /diff  /doctor  /cost  /undo  /redo  /compact  exit'
     )
   );
 }
@@ -702,6 +709,7 @@ function NexusTUIApp({ client, snapshotManager }) {
   const { isRawModeSupported } = useStdin();
   const { rows, columns } = useWindowSize();
   const [session, setSession] = useState(client.sessionData);
+  const [customCommands, setCustomCommands] = useState([]);
   const [messages, setMessages] = useState([]);
   const [activeStream, setActiveStream] = useState('');
   const [input, setInput] = useState('');
@@ -728,14 +736,26 @@ function NexusTUIApp({ client, snapshotManager }) {
   // Read git branch on mount
   useEffect(() => {
     snapshotManager.getCurrentBranch().then(b => setGitBranch(b || '')).catch(() => {});
+    client.listCommands()
+      .then(names => setCustomCommands(names.map(name => ({
+        cmd: '/' + name,
+        desc: 'Workspace slash command',
+        cat: 'Custom',
+        needsArg: true
+      }))))
+      .catch(() => {});
   }, []);
 
   // Filter command suggestions based on current input
   const isSlashActive = input.startsWith('/');
   const enteredCommand = input.trim().toLowerCase().split(/\s+/, 1)[0];
-  const exactCommand = ALL_COMMANDS.find(command => command.cmd.toLowerCase() === enteredCommand);
+  const availableCommands = [
+    ...ALL_COMMANDS,
+    ...customCommands.filter(custom => !ALL_COMMANDS.some(builtin => builtin.cmd.toLowerCase() === custom.cmd.toLowerCase()))
+  ];
+  const exactCommand = availableCommands.find(command => command.cmd.toLowerCase() === enteredCommand);
   const filteredCommands = isSlashActive
-    ? (exactCommand ? [exactCommand] : ALL_COMMANDS.filter(command => command.cmd.toLowerCase().startsWith(enteredCommand)))
+    ? (exactCommand ? [exactCommand] : availableCommands.filter(command => command.cmd.toLowerCase().startsWith(enteredCommand)))
     : [];
   const providerOptions = getProviderPickerCatalog(session?.model);
   const providerItems = [...providerOptions, { id: '__custom__', label: 'Custom OpenAI-compatible endpoint', category: 'Custom', connected: false, active: false, baseUrl: 'Register another API-compatible gateway' }];
@@ -784,7 +804,7 @@ function NexusTUIApp({ client, snapshotManager }) {
     // /help or just /
     if (trimmed === '/help' || trimmed === '/') {
       const helpText = `AVAILABLE COMMANDS:
-      ${ALL_COMMANDS.map(command => `${command.cmd.padEnd(14)} ${command.desc}`).join('\n')}`;
+      ${availableCommands.map(command => `${command.cmd.padEnd(14)} ${command.desc}`).join('\n')}`;
 
       setMessages(prev => [
         ...prev,
@@ -907,6 +927,22 @@ function NexusTUIApp({ client, snapshotManager }) {
         ...prev,
         { role: 'user', content: trimmed },
         { role: 'assistant', content: '⚡ Mode diubah ke BUILD (Full execution). Modifikasi file & command diizinkan.' }
+      ]);
+      return;
+    }
+
+    if (trimmed === '/auto') {
+      try {
+        const updated = await client.updateSessionSettings({ mode: 'auto' });
+        setSession(current => ({ ...current, ...updated }));
+      } catch (err) {
+        setMessages(prev => [...prev, { role: 'assistant', content: `Failed to update mode: ${err.message}` }]);
+        return;
+      }
+      setMessages(prev => [
+        ...prev,
+        { role: 'user', content: trimmed },
+        { role: 'assistant', content: '🧭 Mode diubah ke AUTO. Nexus memilih PLAN atau BUILD untuk setiap request; permission gate tetap aktif.' }
       ]);
       return;
     }

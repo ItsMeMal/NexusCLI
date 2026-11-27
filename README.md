@@ -496,6 +496,40 @@ NexusCode/
 └── package.json
 ```
 
+## Workspace Skills & Custom Commands
+
+NexusCode can load project-scoped workflow instructions and reusable slash commands.
+
+### Skills
+
+Place a skill in either supported layout:
+
+```text
+.agent/skills/<skill-name>/SKILL.md
+.claude/skills/<skill-name>/SKILL.md
+```
+
+A direct `<skill-name>.md` file inside either skills directory is also supported. Relevant skill contents are added to the agent system context. Discovery is capped to keep project instructions bounded; symlinked skill files are ignored.
+
+### Custom slash commands
+
+Create a Markdown file under `.agent/commands/`. Its filename becomes the slash command, and `$ARGUMENTS` is replaced with everything typed after the command:
+
+```text
+.agent/commands/review.md
+```
+
+Example contents:
+
+```md
+Review the following target for correctness, security, and maintainability:
+$ARGUMENTS
+
+Report concrete findings with file and line references.
+```
+
+Invoke it with `/review src/server.js`. Custom commands are expanded into a normal user turn and still follow NexusCode's system security policy and tool permission gates. The interactive TUI discovers workspace commands for slash autocomplete.
+
 ## Contributing
 
 Issues and pull requests are welcome. Before submitting a change:

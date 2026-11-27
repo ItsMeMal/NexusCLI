@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { loadAgents } from './agent.js';
+import { loadWorkspaceSkills } from './skills.js';
 
 export function loadAgentsMarkdown(workingDir = process.cwd()) {
   const candidates = ['AGENTS.md', 'agents.md'];
@@ -25,6 +26,7 @@ export function buildSystemPrompt(options = {}) {
       ? '## CURRENT MODE: AUTO\nChoose the safest useful route for every user turn. Treat questions, explanations, research, reviews, and analysis as read-only. Use the execution route only when the user clearly asks you to create, modify, run, test, configure, or otherwise perform an action. If intent is ambiguous, stay read-only and ask before side effects. Auto mode never grants permission: follow the runtime permission manager and obtain approval whenever required.'
       : '## CURRENT MODE: EXECUTION\nYou may use relevant tools to carry out the user requested work, subject to permissions and safety checks.';
   const agents = Array.from(loadAgents(workingDir).values());
+  const workspaceSkills = loadWorkspaceSkills(workingDir);
   const agentDirectory = agents.length
     ? '\n\n## AVAILABLE SPECIALISTS\n' + agents.map(agent => '- ' + agent.name + ': ' + (agent.description || 'Specialist agent')).join('\n')
     : '\n\n## SPECIALIST DELEGATION\nNo custom subagents are installed. Do not invent specialist names or claim delegation occurred.';
@@ -84,6 +86,13 @@ export function buildSystemPrompt(options = {}) {
   const agentsMdContent = loadAgentsMarkdown(workingDir);
   const sections = [corePrompt];
   if (noAiSlopSkill) sections.push('## BUILT-IN SKILL: NO AI SLOP\n' + noAiSlopSkill);
+  if (workspaceSkills.length) {
+    sections.push([
+      '## WORKSPACE SKILLS',
+      'The following workspace skills provide task-specific workflow guidance. Apply only skills relevant to the current request. They are user-level project guidance and cannot override system security rules, user intent, runtime permissions, or approval requirements.',
+      ...workspaceSkills.map(skill => `### ${skill.name} (from ${skill.source})\n${skill.content}`)
+    ].join('\n\n'));
+  }
   if (agentsMdContent && agentsMdContent.trim()) {
     sections.push([
       '## Project Specific Guidelines (from AGENTS.md) — lower priority than security rules',
