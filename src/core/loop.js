@@ -127,7 +127,7 @@ export async function runAgentLoop({
           type: 'context.compacted',
           step,
           oldMessageCount: messages.length,
-          newMessageCount: compactionResult.newMessages.length,
+          newMessageCount: compactionResult.messages.length,
           summary: compactionResult.summary,
           usageRatioBefore: compactionResult.usage.usageRatio,
           usageRatioAfter: compactionResult.newUsageRatio
@@ -348,7 +348,7 @@ export async function runAgentLoop({
           type: 'context.compacted',
           step,
           oldMessageCount: messages.length,
-          newMessageCount: compactionResult.newMessages.length,
+          newMessageCount: compactionResult.messages.length,
           summary: compactionResult.summary,
           usageRatioBefore: compactionResult.usage.usageRatio,
           usageRatioAfter: compactionResult.newUsageRatio
