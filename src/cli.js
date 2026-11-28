@@ -9,7 +9,7 @@ import readline from 'node:readline';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createNexusServer } from './server.js';
-import { SessionSnapshotManager, isGitRepo } from './core/snapshot.js';
+import { SessionSnapshotManager, isGitRepo, isPotentiallyMutatingTool } from './core/snapshot.js';
 import { exportSessionToHTML } from './core/export.js';
 import { getModelConfig, estimateMessagesTokens } from './core/context.js';
 import { isDockerAvailable } from './core/sandbox.js';
@@ -428,6 +428,10 @@ async function runInteractive(parsed) {
     }
   };
 
+  // Checkpoints run in the background so the next prompt is available immediately.
+  // A submitted follow-up waits for the pending checkpoint before starting another task.
+  let pendingCheckpoint = null;
+
   const executeTurn = async (userInput, autoApprove = false) => {
     let tokenStreamStarted = false;
     let interruptRequested = false;
@@ -435,6 +439,8 @@ async function runInteractive(parsed) {
     let messageAccepted = false;
     let abortPromise = null;
     const turnStartTime = Date.now();
+    let workspaceMayHaveChanged = false;
+    let executionMode = client.sessionData.mode;
     const canCaptureInterrupt = Boolean(process.stdin.isTTY && process.stdout.isTTY);
     const wasRaw = canCaptureInterrupt ? Boolean(process.stdin.isRaw) : false;
 
@@ -498,6 +504,7 @@ async function runInteractive(parsed) {
           if (interruptRequested) spinner.update('Waiting for the active operation to stop…');
         },
         onModeResolved: (event) => {
+          executionMode = event.executionMode || executionMode;
           const route = String(event.executionMode || 'plan').toUpperCase();
           spinner.update(`Auto selected ${route} · ${event.reason || 'automatic route'}`, route === 'build' ? 'working' : 'thinking');
         },
@@ -512,6 +519,9 @@ async function runInteractive(parsed) {
           process.stdout.write(tok);
         },
         onToolStart: (event) => {
+          if (isPotentiallyMutatingTool(event.name)) {
+            workspaceMayHaveChanged = true;
+          }
           if (interruptRequested) return;
           if (tokenStreamStarted) {
             process.stdout.write('\n');
@@ -607,10 +617,23 @@ async function runInteractive(parsed) {
       spinner.stop(false);
     }
 
-    // Keep the post-turn checkpoint even after an interrupt so completed file
-    // changes made before the stop request remain recoverable.
-    if (client.sessionData.mode === 'build') {
-      await snapshotManager.createCheckpoint('after-turn');
+    // Only checkpoint turns that could have changed the workspace. Queue the
+    // git work without blocking the next prompt; the next submitted command waits
+    // for this checkpoint so snapshots from adjacent turns cannot overlap.
+    if (executionMode === 'build' && workspaceMayHaveChanged) {
+      const previousCheckpoint = pendingCheckpoint;
+      pendingCheckpoint = (async () => {
+        if (previousCheckpoint) await previousCheckpoint;
+        const result = await snapshotManager.createCheckpoint('after-turn');
+        if (!result?.success) {
+          console.warn('  ' + c.yellow + '[Snapshot warning] ' +
+            (result?.message || 'Could not create the after-turn checkpoint.') + c.reset);
+        }
+        return result;
+      })().catch((error) => {
+        console.warn('  ' + c.yellow + '[Snapshot warning] ' + error.message + c.reset);
+        return null;
+      });
     }
   };
 
@@ -664,6 +687,13 @@ async function runInteractive(parsed) {
 
     let trimmed = input.trim();
     if (!trimmed) continue;
+
+    // Preserve snapshot ordering without making the user wait before seeing the prompt.
+    if (pendingCheckpoint) {
+      const checkpoint = pendingCheckpoint;
+      pendingCheckpoint = null;
+      await checkpoint;
+    }
 
     // A bare slash opens the searchable command palette. This also works in
     // non-TTY terminals, where inline keypress autocomplete is unavailable.
