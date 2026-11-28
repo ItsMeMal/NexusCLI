@@ -3,6 +3,24 @@ import { promisify } from 'node:util';
 import fs from 'node:fs';
 import path from 'node:path';
 
+const READ_ONLY_TOOL_NAMES = new Set([
+  'read_file',
+  'grep',
+  'glob',
+  'repo_map',
+  'webfetch',
+  'todo'
+]);
+
+/**
+ * Be conservative for extensions and unknown tools: they may mutate the workspace.
+ * Only tools known to be read-only skip the post-turn workspace checkpoint.
+ */
+export function isPotentiallyMutatingTool(toolName) {
+  const name = String(toolName || '').trim().toLowerCase();
+  return Boolean(name) && !READ_ONLY_TOOL_NAMES.has(name);
+}
+
 const execAsync = promisify(exec);
 
 export async function isGitRepo(workingDir = process.cwd()) {
